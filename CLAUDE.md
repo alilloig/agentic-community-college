@@ -36,8 +36,10 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 | `.claude-plugin/plugin.json` | Plugin manifest: name=`agentic-community-college`, commands/agents/skills/mcpServers registered. |
 | `commands/start.md` | `/agentic-community-college:start` → delegates to course-engine skill. |
 | `agents/course-conductor.md` | Section-loop driver dispatched after course-engine sets up the session. |
-| `skills/course-engine/SKILL.md` | Entry-point skill: discovery → lesson selection → setOutputMode → setPersonalization → hand off to conductor. |
-| `skills/lesson-creator/SKILL.md` | Authoring skill that scaffolds a new lesson into a target course plugin. |
+| `skills/course-engine/SKILL.md` | Entry-point skill: discovery → lesson selection → prerequisites → setOutputMode → setPersonalization → hand off to conductor. |
+| `skills/course-creator/SKILL.md` | Authoring skill that scaffolds a new **course plugin** from scratch (plugin.json + accContent + probes + README + CLAUDE.md + empty lessons/). |
+| `skills/course-creator/templates/` | `plugin.json.tmpl`, `README.md.tmpl`, `CLAUDE.md.tmpl`, `.gitignore.tmpl`. |
+| `skills/lesson-creator/SKILL.md` | Authoring skill that scaffolds a new lesson into an existing course plugin. Handles on-demand probe declaration when a lesson lists a prerequisite the course hasn't declared yet. |
 | `skills/lesson-creator/templates/` | `lesson.json.tmpl`, `sections.json.tmpl`, `template.html.tmpl`, `description.md.tmpl`. |
 | `mcp/server/src/index.ts` | MCP entry; registers 8 tools and starts stdio transport when run as a script. |
 | `mcp/server/src/tools/start.ts` | `start` — discovers courses + lists lessons + reports preflight/state. |
@@ -55,7 +57,9 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 | `mcp/server/src/outputStyle.ts` | `probeOutputStyle()` (gates every MCP tool) + `readActiveOutputStyle()` (informational, for the mismatch warning). |
 | `mcp/server/src/personalization.ts` | `substitutePromptOnly()` — scope-guarded `{{ key }}` substitution. AC-6.3 invariant. |
 | `mcp/server/src/verify.ts` | Verification runner. Modes: `compile`, `test-suite`. Spawn injection seam preserved. |
-| `mcp/server/src/preflight.ts` + `probes/` | Preflight probe registry (8 frozen probes). Skipped in cycle 1. |
+| `mcp/server/src/preflight.ts` | Shared types only (`ProbeResult`, `ShellAction`, `ProbeOptions`, `SpawnFn`). ACC ships **zero** hardcoded probes. |
+| `mcp/server/src/dynamicProbes.ts` | Declarative probe runner. Interprets the 4 supported kinds (`filesystem-exists`, `http-get`, `shell-exit-zero`, `claude-plugin-enabled`). |
+| `mcp/server/src/schemas/courseProbes.ts` | Validator for `accContent.probes` declarations in a course plugin's `plugin.json`. |
 | `mcp/server/src/pathSafety.ts` | `containedPath` guard for any host-side file writes. |
 | `mcp/server/src/pathsRoot.ts` | Legacy single-root resolver. Kept for dev-loop smoke tests; production discovery flows through `pluginsRoot.ts`. |
 | `mcp/server/src/schemas/lesson.ts` | `validateLesson()` for `<lesson>/lesson.json`. |
@@ -75,10 +79,12 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 7. **State schema versioning is on `STATE_SCHEMA_VERSION = 4`.** Older states (v3 from sui-mcp-course) surface as `schema-mismatch`; the user re-runs `selectLesson` to mint fresh state. Never silently coerce.
 8. **Workspaces are course-owned and idempotent (F-005 carry-forward).** `prepareWorkspace` lives at `~/.acc/workspaces/<slug>/`, fingerprints the host tarball into `host_signature`, and reuses an existing workspace iff that signature matches. Mismatch → archive to `<workspace>.archive-<ts>/` and recreate.
 9. **Verification spawn is injectable.** `runVerification` accepts a `spawn` stub via `VerifyOptions.spawn` for hermetic tests. Don't re-introduce a module-level test override.
-10. **`start` never runs preflight probes.** It returns `preflight: { skipped: true, reason: 'cycle-1' }` and leaves `state: null`. Probes only run via `runPreflightProbe`, invoked by the course-engine **after `selectLesson`** when the loaded lesson declares `prerequisites`. Don't surface a preflight loop in `start`.
-11. **Lesson prerequisites are probe-IDs only.** `lesson.json:prerequisites` must list IDs from `preflight.ts:PROBE_ORDER`. The schema mirrors that list inline (`schemas/lesson.ts:KNOWN_PROBE_IDS`); the cross-reference test in `tests/lesson.schema.test.ts` catches drift. Domain-specific probes (`sandbox-*`) stay in ACC for now even though they're DeepBook-flavored — moving them into the content plugin is a future refactor once a second course exists.
-12. **HTML artifact updates flow through `advanceArtifact` only.** Don't have the conductor write `artifact-state.json` directly — the atomic-write seam is what makes the page poller's reads safe.
-13. **Path safety is non-negotiable.** Anything that resolves a lesson-relative path (template files, body_md, host directory, verification cwd) goes through `pathSafety.containedPath` or the schema validators' `isLessonRelPath`. Reject `..` segments and leading slashes.
+10. **`start` never runs preflight probes.** It returns `preflight: { skipped: true, reason: 'cycle-1' }` and leaves `state: null`. Probes only run via `runPreflightProbe`, invoked by the course-engine **after `selectLesson`** when the loaded lesson declares `prerequisites`.
+11. **ACC ships zero domain probes.** Every probe is declared by a course plugin's `plugin.json` under `accContent.probes`. ACC owns the four interpreter kinds (`filesystem-exists`, `http-get`, `shell-exit-zero`, `claude-plugin-enabled`) in `dynamicProbes.ts` and nothing else. A new probe kind requires a runtime change in ACC; a new instance of an existing kind is just a JSON declaration in the course.
+12. **`runPreflightProbe` resolves probe IDs against the merged registry** (the union of every enabled course plugin's declared probes). On collision across two courses, first-found wins; emit a warning at discovery time. Unknown IDs surface as a descriptive error — never silently no-op.
+13. **`lesson.json:prerequisites` is a flat list of probe-ID strings.** The schema only enforces non-empty-string entries; runtime catches unknown IDs when `runPreflightProbe` runs. No hardcoded allowlist in the schema, no cross-reference table.
+14. **HTML artifact updates flow through `advanceArtifact` only.** Don't have the conductor write `artifact-state.json` directly — the atomic-write seam is what makes the page poller's reads safe.
+15. **Path safety is non-negotiable.** Anything that resolves a lesson-relative path (template files, body_md, host directory, verification cwd, probe `path` params, probe `cwd` remediations) goes through `pathSafety.containedPath` / the schema validators / `dynamicProbes.expandUserPath`. Reject `..` segments and leading slashes; require `~/` or absolute for declarative probe paths.
 
 ## Verification Modes
 

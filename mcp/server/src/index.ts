@@ -9,7 +9,6 @@ import { runSetPersonalization } from './tools/setPersonalization.js';
 import { runNextSection } from './tools/nextSection.js';
 import { runVerifySection } from './tools/verifySection.js';
 import { runAdvanceArtifact } from './tools/advanceArtifact.js';
-import { PROBE_ORDER } from './preflight.js';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
 
@@ -37,7 +36,7 @@ export function registerTools(server: McpServer): void {
 
   server.tool(
     'runPreflightProbe',
-    `Run a single preflight probe by id. Valid probe ids (in order): ${PROBE_ORDER.join(', ')}. Use remediate: true to trigger shell action execution (e.g. pnpm deploy-all --quick for sandbox-manifest-reachable).`,
+    `Run a single declarative probe by id. Probe ids are resolved against the union of every enabled course plugin's accContent.probes — ACC ships no domain probes itself. Use remediate: true to execute the probe's shell remediation (if it has one) and re-run the probe afterwards.`,
     {
       probeId: z.string().describe('The probe id to run'),
       remediate: z

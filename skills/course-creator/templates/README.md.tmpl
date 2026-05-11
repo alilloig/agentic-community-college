@@ -1,0 +1,41 @@
+# {{ name }}
+
+A **content plugin** for the [Agentic Community College (ACC)](https://github.com/alilloig/agentic-community-college) framework. This repo ships {{ description_short }}; the ACC plugin owns the runtime that actually drives the lessons.
+
+## How it plugs in
+
+`.claude-plugin/plugin.json` declares:
+
+```json
+{
+  "name": "{{ name }}",
+  "accContent": {
+    "lessons": "./lessons/",
+    "probes": [ /* prerequisite checks for the lessons here */ ]
+  }
+}
+```
+
+When this plugin is enabled alongside `agentic-community-college`, ACC scans `~/.claude/plugins/installed_plugins.json` at startup, finds this manifest's `accContent` block, and aggregates every lesson under `lessons/<slug>/` into its catalog. Probes declared here resolve at runtime when a lesson lists them in its `prerequisites`.
+
+## What's inside
+
+```
+{{ name }}/
+├── .claude-plugin/plugin.json    name + accContent (lessons + probes), no executable bits
+├── README.md                     this file
+├── CLAUDE.md                     working notes for Claude when authoring lessons here
+└── lessons/                      one directory per lesson, each a hard copy of a reference app
+                                  plus its ordered section sequence, tests, and HTML artifact
+```
+
+## Authoring a new lesson
+
+Don't write lesson files by hand. From inside any ACC-enabled session, invoke the `lesson-creator` skill. Point it at this repo and a reference codebase, and it scaffolds the whole lesson directory.
+
+## Running a lesson
+
+1. Install (or enable) both this plugin **and** `agentic-community-college` in Claude Code.
+2. Run `/agentic-community-college:start` from any project directory.
+3. Pick a lesson by namespaced slug (e.g. `{{ name }}@<marketplace>/01-some-lesson`).
+4. ACC drives you through it — runs any prerequisite probes declared in this plugin, asks for learning vs explanatory mode, sets personalization, walks the section sequence.

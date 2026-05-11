@@ -1,13 +1,9 @@
-import { probeDockerRunning } from './probes/docker.js';
-import { probeNodeVersion } from './probes/node.js';
-import { probePnpmAvailable } from './probes/pnpm.js';
-import { probeSuiCliVersion } from './probes/suiCli.js';
-import { probeSuiPilotEnabled } from './probes/suiPilot.js';
-import { probeSandboxRepoPresent } from './probes/sandboxRepo.js';
-import { probeSandboxManifestReachable } from './probes/manifest.js';
-import { probeLearningOutputStyleEnabled } from './probes/learningOutputStyle.js';
-
-// Shared types used by probes and the tool handler.
+// preflight.ts — shared types for probe execution.
+//
+// ACC ships zero domain probes. Every prerequisite check is declared by the
+// active course plugin under `accContent.probes` in its `plugin.json`. The
+// declarative interpreter lives in `dynamicProbes.ts`; this file only owns
+// the shared types those declarations and their runtime callers exchange.
 
 export interface ShellAction {
   kind: 'shell';
@@ -28,59 +24,11 @@ export type SpawnFn = (
   opts?: { timeout?: number },
 ) => { status: number | null; stdout: string; stderr: string };
 
-export type ProbeId =
-  | 'docker-running'
-  | 'node-version'
-  | 'pnpm-available'
-  | 'sui-cli-version'
-  | 'sui-pilot-enabled'
-  | 'sandbox-repo-present'
-  | 'sandbox-manifest-reachable'
-  | 'learning-output-style-enabled';
-
-export type ProbeOptions = {
+export interface ProbeOptions {
   spawn?: SpawnFn;
+  /** Some callers route a remediation flag through. The declarative runner
+   * itself never executes remediations — that's `runPreflightProbe`'s job —
+   * but the field stays on the shared type so test stubs can be wired
+   * uniformly. */
   remediate?: boolean;
-};
-
-export type ProbeFn = (opts: ProbeOptions) => Promise<ProbeResult>;
-
-// The eight probe ids in spec-table order — frozen for immutability.
-export const PROBE_ORDER: readonly ProbeId[] = Object.freeze([
-  'docker-running',
-  'node-version',
-  'pnpm-available',
-  'sui-cli-version',
-  'sui-pilot-enabled',
-  'sandbox-repo-present',
-  'sandbox-manifest-reachable',
-  'learning-output-style-enabled',
-] as const);
-
-// Registry mapping probe ids to their implementations.
-const PROBE_REGISTRY: Record<ProbeId, ProbeFn> = {
-  'docker-running': probeDockerRunning,
-  'node-version': probeNodeVersion,
-  'pnpm-available': probePnpmAvailable,
-  'sui-cli-version': probeSuiCliVersion,
-  'sui-pilot-enabled': probeSuiPilotEnabled,
-  'sandbox-repo-present': probeSandboxRepoPresent,
-  'sandbox-manifest-reachable': probeSandboxManifestReachable,
-  'learning-output-style-enabled': probeLearningOutputStyleEnabled,
-};
-
-// M005 carry-forward: per-call ProbeOptions.spawn injection only; no module-level
-// override. Harness fixtures pass stubs via ProbeOptions at the call site.
-
-/**
- * Run the probe identified by probeId with the provided options.
- * Throws (or rejects) with a structured Error for unknown probe ids.
- */
-export async function runProbe(probeId: ProbeId, opts: ProbeOptions): Promise<ProbeResult> {
-  const probe = PROBE_REGISTRY[probeId as ProbeId];
-  if (!probe) {
-    throw new Error(`Unknown probe id: '${String(probeId)}'. Valid ids: ${PROBE_ORDER.join(', ')}`);
-  }
-
-  return probe(opts);
 }

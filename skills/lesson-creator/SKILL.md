@@ -28,7 +28,11 @@ Ask the user (using AskUserQuestion where natural) for:
 - **Title**: human-readable, e.g. "DeepBook Market Stats".
 - **Summary**: one-sentence elevator pitch shown in the lesson catalog.
 - **Personalization** (optional): list of free-form keys with their ranges (integer min/max/default) or enums (values/default). Most lessons ship with no personalization.
-- **Prerequisites** (optional): probe IDs from ACC's preflight registry that must pass before the learner can start. Useful when the lesson depends on a live external service (Docker stack, a cloned sibling repo, an RPC endpoint). Allowed IDs: `docker-running`, `node-version`, `pnpm-available`, `sui-cli-version`, `sui-pilot-enabled`, `sandbox-repo-present`, `sandbox-manifest-reachable`, `learning-output-style-enabled`. For lessons with no external dependencies, leave it as `[]`.
+- **Prerequisites** (optional): probe IDs the conductor must pass before the learner can start. Probes are declared *in the course plugin's* `plugin.json` under `accContent.probes`, not in ACC — ACC ships zero domain probes. For each prerequisite the user names:
+  1. Read the target course's `<course>/.claude-plugin/plugin.json` and check whether the id already exists in `accContent.probes`.
+  2. If it does, just add the id to this lesson's `prerequisites` array. No further action.
+  3. If it doesn't, **offer to declare it inline now**. Run the same probe-kind wizard `course-creator` uses (kind, message_pass, message_fail, params, optional remediation). Append the new decl to the course's `accContent.probes` array, write the manifest back atomically, then add the id to the lesson's `prerequisites`.
+  4. Refuse to add a prerequisite id without declaring it — silent missing-probe references would break the conductor at runtime.
 - **Chapter breakdown**: ask whether to (a) **auto-derive** sections from the reference-app's natural milestones (you read the code and propose 5–10 sections), or (b) **manual** (the user names the sections).
 
 ## Step 3 — Seed transform

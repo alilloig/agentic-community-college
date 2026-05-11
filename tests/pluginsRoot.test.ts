@@ -219,6 +219,65 @@ describe('pluginsRoot.discoverCourses', () => {
     }
   });
 
+  it('captures accContent.probes when valid', () => {
+    fixture = makeFixture([
+      {
+        pluginKey: 'probes-course@local',
+        pluginManifest: {
+          name: 'probes-course',
+          accContent: {
+            lessons: './lessons',
+            probes: [
+              {
+                id: 'docker-running',
+                kind: 'shell-exit-zero',
+                message_pass: 'ok',
+                message_fail: 'start docker',
+                params: { command: 'docker', args: ['info'] },
+              },
+              {
+                id: 'sandbox-repo-present',
+                kind: 'filesystem-exists',
+                message_pass: 'present',
+                message_fail: 'clone the repo',
+                params: { path: '~/workspace/something' },
+              },
+            ],
+          },
+        },
+        lessonsSubdir: 'lessons',
+      },
+    ]);
+
+    const result = discoverCourses({ installedPluginsFile: fixture.installedPluginsFile });
+    expect(result.warnings).toEqual([]);
+    expect(result.courses).toHaveLength(1);
+    expect(result.courses[0].probes).toHaveLength(2);
+    expect(result.courses[0].probes[0].id).toBe('docker-running');
+    expect(result.courses[0].probes[1].kind).toBe('filesystem-exists');
+  });
+
+  it('warns and treats probes as empty when the probes block is malformed', () => {
+    fixture = makeFixture([
+      {
+        pluginKey: 'bad-probes@local',
+        pluginManifest: {
+          name: 'bad-probes',
+          accContent: {
+            lessons: './lessons',
+            probes: [{ id: 'bad', kind: 'magic-kind', message_pass: 'a', message_fail: 'b', params: {} }],
+          },
+        },
+        lessonsSubdir: 'lessons',
+      },
+    ]);
+
+    const result = discoverCourses({ installedPluginsFile: fixture.installedPluginsFile });
+    expect(result.courses).toHaveLength(1);
+    expect(result.courses[0].probes).toEqual([]);
+    expect(result.warnings.some((w) => w.kind === 'course-plugin-probes-invalid')).toBe(true);
+  });
+
   it('honors the ACC_INSTALLED_PLUGINS_FILE env var', () => {
     fixture = makeFixture([
       {

@@ -159,13 +159,19 @@ describe('validateLesson', () => {
     if (r.ok) expect(r.value.prerequisites).toEqual([]);
   });
 
-  it('rejects a prerequisites entry that is not a known probe ID', () => {
+  it('accepts arbitrary string probe IDs (runtime resolves against course manifests)', () => {
+    // Schema no longer hardcodes a probe-ID allowlist. ACC ships zero
+    // domain probes; each course plugin declares its own under
+    // accContent.probes. Runtime (runPreflightProbe) surfaces an error
+    // when a prerequisite id doesn't match any declared probe.
     const r = validateLesson({
       ...baseLesson(),
-      prerequisites: ['docker-running', 'totally-fake-probe'],
+      prerequisites: ['my-custom-probe', 'another-one'],
     });
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error).toMatch(/totally-fake-probe/);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.prerequisites).toEqual(['my-custom-probe', 'another-one']);
+    }
   });
 
   it('rejects prerequisites when not an array', () => {
@@ -175,16 +181,17 @@ describe('validateLesson', () => {
     } as unknown);
     expect(r.ok).toBe(false);
   });
+
+  it('rejects empty-string entries in prerequisites', () => {
+    const r = validateLesson({ ...baseLesson(), prerequisites: ['ok-id', ''] });
+    expect(r.ok).toBe(false);
+  });
 });
 
-describe('validateLesson — prerequisites probe-ID cross-reference', () => {
-  // The KNOWN_PROBE_IDS set inside schemas/lesson.ts is mirrored from
-  // preflight.ts:PROBE_ORDER (kept inline to keep schemas dep-free). Catch
-  // drift early: every preflight probe must be a valid prerequisite, and
-  // no invalid probe ID should slip through.
-  it('every PROBE_ORDER id is accepted as a prerequisite', async () => {
-    const { PROBE_ORDER } = await import('../mcp/server/src/preflight.js');
-    for (const probeId of PROBE_ORDER) {
+describe('validateLesson — prerequisites accept any non-empty string', () => {
+  it('accepts a long arbitrary list of probe IDs', () => {
+    const ids = ['a', 'b-c', 'plugin-name@scope', 'with.dot', 'with_under'];
+    for (const probeId of ids) {
       const r = validateLesson({ ...baseLesson(), prerequisites: [probeId] });
       expect(r.ok, r.ok ? '' : `${probeId}: ${r.error}`).toBe(true);
     }

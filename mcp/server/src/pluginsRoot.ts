@@ -28,16 +28,19 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { validateCourseProbes, type CourseProbeDecl } from './schemas/courseProbes.js';
 
 /**
  * One discovered course. `name` is the plugin key from `installed_plugins.json`
  * (e.g. `acc-deepbook-course@local`). `dir` is the plugin install dir.
  * `lessonsRoot` is the absolute path to where lessons live inside that plugin.
+ * `probes` are the course's declarative probe decls (empty array if none).
  */
 export interface DiscoveredCourse {
   name: string;
   dir: string;
   lessonsRoot: string;
+  probes: CourseProbeDecl[];
 }
 
 export interface CourseDiscoveryWarning {
@@ -47,7 +50,8 @@ export interface CourseDiscoveryWarning {
     | 'course-plugin-malformed'
     | 'course-plugin-install-missing'
     | 'course-plugin-lessons-missing'
-    | 'course-plugin-acc-content-invalid';
+    | 'course-plugin-acc-content-invalid'
+    | 'course-plugin-probes-invalid';
   message: string;
   pluginKey?: string;
   path?: string;
@@ -246,10 +250,31 @@ export function discoverCourses(opts: DiscoverCoursesOptions = {}): CourseDiscov
     if (seenLessonsRoots.has(lessonsResolved)) continue;
     seenLessonsRoots.add(lessonsResolved);
 
+    // Optional accContent.probes — declarative prerequisite checks.
+    let probes: CourseProbeDecl[] = [];
+    if ((accContent as Record<string, unknown>)['probes'] !== undefined) {
+      const probesValidation = validateCourseProbes(
+        (accContent as Record<string, unknown>)['probes'],
+      );
+      if (!probesValidation.ok) {
+        warnings.push({
+          kind: 'course-plugin-probes-invalid',
+          message: `${pluginKey}: ${probesValidation.error}`,
+          pluginKey,
+          path: manifestPath,
+        });
+        // Continue without probes; the course is still usable for lessons
+        // that don't declare prerequisites.
+      } else {
+        probes = probesValidation.value;
+      }
+    }
+
     courses.push({
       name: pluginKey,
       dir: installNormalized,
       lessonsRoot: lessonsResolved,
+      probes,
     });
   }
 
