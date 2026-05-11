@@ -212,9 +212,11 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
         error: `workspace.host '${w['host']}' must be a relative path with no '..' segments and no leading '/'`,
       };
     }
-    if (!Array.isArray(w['files']) || w['files'].length === 0) {
-      return { ok: false, error: 'workspace.files must be a non-empty array' };
+    if (!Array.isArray(w['files'])) {
+      return { ok: false, error: 'workspace.files must be an array' };
     }
+    // Empty array is valid: lessons that seed entirely from the `host`
+    // directory (no per-file starters) can declare files: [].
     const files: WorkspaceFileSpec[] = [];
     for (const f of w['files'] as unknown[]) {
       if (typeof f !== 'object' || f === null) {
