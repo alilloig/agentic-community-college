@@ -12,6 +12,9 @@ export interface OutputStyleResult {
   warning?: OutputStyleWarning;
 }
 
+/** Named output style currently active in the user's Claude Code session. */
+export type ActiveOutputStyle = 'learning' | 'explanatory' | 'default' | 'other' | 'unknown';
+
 const PLUGIN_KEY = 'learning-output-style@claude-plugins-official';
 
 const PLUGIN_NOT_ENABLED_WARNING: OutputStyleWarning = {
@@ -82,4 +85,36 @@ export async function probeOutputStyle(): Promise<OutputStyleResult> {
   }
 
   return { ok: false, warning: PLUGIN_NOT_ENABLED_WARNING };
+}
+
+/**
+ * Read which named output style is currently active in `~/.claude/settings.json`.
+ * Used by `setOutputMode` to warn when the user picks a mode in ACC that
+ * doesn't match what their Claude Code session is actually in.
+ *
+ * Returns `'unknown'` when the settings file is unreadable or doesn't declare
+ * `outputStyle`. Returns `'other'` for any named style ACC doesn't itself
+ * understand (custom user-defined styles, future Claude Code additions).
+ */
+export function readActiveOutputStyle(): ActiveOutputStyle {
+  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
+  let raw: string;
+  try {
+    raw = fs.readFileSync(settingsPath, 'utf8');
+  } catch {
+    return 'unknown';
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return 'unknown';
+  }
+  if (typeof parsed !== 'object' || parsed === null) return 'unknown';
+  const style = (parsed as Record<string, unknown>)['outputStyle'];
+  if (typeof style !== 'string') return 'unknown';
+  if (style === 'learning') return 'learning';
+  if (style === 'explanatory') return 'explanatory';
+  if (style === 'default') return 'default';
+  return 'other';
 }

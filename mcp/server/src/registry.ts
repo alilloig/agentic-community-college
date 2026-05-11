@@ -1,38 +1,34 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { validatePath } from './schemas/path.js';
-import { validatePhases } from './schemas/phases.js';
+import { validateLesson, type LessonData } from './schemas/lesson.js';
+import { validateSections, type SectionsManifest } from './schemas/sections.js';
 import type { DiscoveredCourse } from './pluginsRoot.js';
 import type { RegistryWarning } from './warnings.js';
 
 export type { RegistryWarning };
 
-export interface PathInfo {
+/**
+ * Public summary of a lesson, surfaced to the conductor and `start` tool.
+ * The full `LessonData` and `SectionsManifest` are loaded lazily by tools
+ * that need them (selectLesson, nextSection, etc.).
+ */
+export interface LessonInfo {
   slug: string;
   title: string;
   summary: string;
   personalization_options: string[];
   build_command: string;
-}
-
-export interface RegistryResult {
-  paths: PathInfo[];
-  warnings: RegistryWarning[];
-}
-
-/**
- * A lesson discovered via a course plugin. Carries the path-level fields plus
- * namespacing back to the owning course so MCP tools can resolve lesson content
- * unambiguously even when multiple courses ship a lesson with the same internal
- * slug.
- */
-export interface LessonInfo extends PathInfo {
   /** Plugin key of the owning course (e.g. `acc-deepbook-course@local`). */
   course_name: string;
   /** Course-prefixed slug used as the public identifier: `<course>/<slug>`. */
   namespaced_slug: string;
   /** Absolute path to the course's lessons root. */
   lessons_root: string;
+  /** Absolute path to this lesson's directory. */
+  lesson_dir: string;
+  /** Total number of sections in this lesson (loaded eagerly so the conductor
+   * can render "section N of M" without a second tool round-trip). */
+  section_count: number;
 }
 
 export interface CoursesRegistryResult {
@@ -40,147 +36,161 @@ export interface CoursesRegistryResult {
   warnings: RegistryWarning[];
 }
 
-export async function scanRegistry(scanRoot: string): Promise<RegistryResult> {
+interface ScanSingleRootResult {
+  lessons: Array<{
+    info: LessonInfo;
+    lesson: LessonData;
+    sections: SectionsManifest;
+  }>;
+  warnings: RegistryWarning[];
+}
+
+/**
+ * Scan a single lessons-root directory. Each immediate subdirectory is
+ * interpreted as a lesson and validated against `lesson.json` + `sections.json`
+ * together.
+ *
+ * Internal helper — most callers go through `scanCourses` instead.
+ */
+export function scanLessonsRoot(
+  scanRoot: string,
+  courseName: string,
+): ScanSingleRootResult {
+  const result: ScanSingleRootResult = { lessons: [], warnings: [] };
+
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(scanRoot, { withFileTypes: true });
   } catch {
-    return {
-      paths: [],
-      warnings: [
-        {
-          kind: 'no-paths-dir',
-          message: `Paths directory not found: ${scanRoot}`,
-        },
-      ],
-    };
+    result.warnings.push({
+      kind: 'no-paths-dir',
+      message: `Lessons directory not found: ${scanRoot}`,
+      path: scanRoot,
+    });
+    return result;
   }
 
-  // Filter out non-directory entries silently
   const dirEntries = entries.filter((e) => e.isDirectory());
-
   if (dirEntries.length === 0) {
-    return {
-      paths: [],
-      warnings: [
-        {
-          kind: 'empty-paths-dir',
-          message: `Paths directory exists but contains no path subdirectories: ${scanRoot}`,
-        },
-      ],
-    };
+    result.warnings.push({
+      kind: 'empty-paths-dir',
+      message: `Lessons directory exists but contains no lesson subdirectories: ${scanRoot}`,
+      path: scanRoot,
+    });
+    return result;
   }
-
-  const paths: PathInfo[] = [];
-  const warnings: RegistryWarning[] = [];
 
   for (const entry of dirEntries) {
-    const slugDir = path.join(scanRoot, entry.name);
-    const pathJsonFile = path.join(slugDir, 'path.json');
+    const lessonDir = path.join(scanRoot, entry.name);
+    const lessonJsonFile = path.join(lessonDir, 'lesson.json');
 
-    // Check if path.json exists
-    if (!fs.existsSync(pathJsonFile)) {
-      warnings.push({
+    if (!fs.existsSync(lessonJsonFile)) {
+      result.warnings.push({
         kind: 'missing-path-json',
-        message: `No path.json found in ${slugDir}`,
-        path: slugDir,
+        message: `No lesson.json found in ${lessonDir}`,
+        path: lessonDir,
       });
       continue;
     }
 
-    // Try to read and parse path.json
-    let raw: string;
+    let lessonRaw: string;
     try {
-      raw = fs.readFileSync(pathJsonFile, 'utf8');
+      lessonRaw = fs.readFileSync(lessonJsonFile, 'utf8');
     } catch (err) {
-      warnings.push({
+      result.warnings.push({
         kind: 'malformed-path-json',
-        message: `Failed to read ${pathJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
-        path: pathJsonFile,
+        message: `Failed to read ${lessonJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
+        path: lessonJsonFile,
       });
       continue;
     }
 
-    let parsed: unknown;
+    let lessonParsed: unknown;
     try {
-      parsed = JSON.parse(raw);
+      lessonParsed = JSON.parse(lessonRaw);
     } catch (err) {
-      warnings.push({
+      result.warnings.push({
         kind: 'malformed-path-json',
-        message: `Failed to parse ${pathJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
-        path: pathJsonFile,
+        message: `Failed to parse ${lessonJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
+        path: lessonJsonFile,
       });
       continue;
     }
 
-    // Validate schema
-    const validation = validatePath(parsed);
-    if (!validation.ok) {
-      warnings.push({
+    const lessonValidation = validateLesson(lessonParsed);
+    if (!lessonValidation.ok) {
+      result.warnings.push({
         kind: 'invalid-path-json',
-        message: `Schema validation failed for ${pathJsonFile}: ${validation.error}`,
-        path: pathJsonFile,
+        message: `Schema validation failed for ${lessonJsonFile}: ${lessonValidation.error}`,
+        path: lessonJsonFile,
       });
       continue;
     }
 
-    // Phases.json is also load-bearing: cycle 4 consumes phases as part of
-    // the path manifest, so the registry must vouch for both files together.
-    // Cluster C001 from cycle 1's review caught the missing integration.
-    const phasesJsonFile = path.join(slugDir, 'phases.json');
-    let phasesRaw: string;
+    // sections.json is load-bearing: a lesson without it is not runnable.
+    const sectionsJsonFile = path.join(lessonDir, 'sections.json');
+    let sectionsRaw: string;
     try {
-      phasesRaw = fs.readFileSync(phasesJsonFile, 'utf8');
+      sectionsRaw = fs.readFileSync(sectionsJsonFile, 'utf8');
     } catch {
-      warnings.push({
+      result.warnings.push({
         kind: 'missing-phases-json',
-        message: `No phases.json found in ${slugDir}`,
-        path: slugDir,
+        message: `No sections.json found in ${lessonDir}`,
+        path: lessonDir,
       });
       continue;
     }
 
-    let phasesParsed: unknown;
+    let sectionsParsed: unknown;
     try {
-      phasesParsed = JSON.parse(phasesRaw);
+      sectionsParsed = JSON.parse(sectionsRaw);
     } catch (err) {
-      warnings.push({
+      result.warnings.push({
         kind: 'malformed-phases-json',
-        message: `Failed to parse ${phasesJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
-        path: phasesJsonFile,
+        message: `Failed to parse ${sectionsJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
+        path: sectionsJsonFile,
       });
       continue;
     }
 
-    const phasesValidation = validatePhases(phasesParsed);
-    if (!phasesValidation.ok) {
-      warnings.push({
+    const sectionsValidation = validateSections(sectionsParsed);
+    if (!sectionsValidation.ok) {
+      result.warnings.push({
         kind: 'invalid-phases-json',
-        message: `Schema validation failed for ${phasesJsonFile}: ${phasesValidation.error}`,
-        path: phasesJsonFile,
+        message: `Schema validation failed for ${sectionsJsonFile}: ${sectionsValidation.error}`,
+        path: sectionsJsonFile,
       });
       continue;
     }
 
-    paths.push({
-      slug: validation.value.slug,
-      title: validation.value.title,
-      summary: validation.value.summary,
-      personalization_options: validation.value.personalization_options,
-      build_command: validation.value.build_command,
+    const lesson = lessonValidation.value;
+    const sections = sectionsValidation.value;
+    result.lessons.push({
+      info: {
+        slug: lesson.slug,
+        title: lesson.title,
+        summary: lesson.summary,
+        personalization_options: lesson.personalization_options,
+        build_command: lesson.build_command,
+        course_name: courseName,
+        namespaced_slug: `${courseName}/${lesson.slug}`,
+        lessons_root: scanRoot,
+        lesson_dir: lessonDir,
+        section_count: sections.sections.length,
+      },
+      lesson,
+      sections,
     });
   }
 
-  return { paths, warnings };
+  return result;
 }
 
 /**
  * Aggregate lessons across every discovered course. Each course's
- * `lessonsRoot` is scanned through the existing single-root `scanRegistry`,
- * and the results are namespaced by course name so a downstream tool can
- * always tell which course a lesson belongs to.
- *
- * Warnings from per-course scans are passed through unchanged.
+ * `lessonsRoot` is scanned through `scanLessonsRoot`; results are namespaced
+ * by course name so a downstream tool can always tell which course a lesson
+ * belongs to.
  */
 export async function scanCourses(
   courses: readonly DiscoveredCourse[],
@@ -189,17 +199,39 @@ export async function scanCourses(
   const warnings: RegistryWarning[] = [];
 
   for (const course of courses) {
-    const inner = await scanRegistry(course.lessonsRoot);
+    const inner = scanLessonsRoot(course.lessonsRoot, course.name);
     warnings.push(...inner.warnings);
-    for (const lesson of inner.paths) {
-      lessons.push({
-        ...lesson,
-        course_name: course.name,
-        namespaced_slug: `${course.name}/${lesson.slug}`,
-        lessons_root: course.lessonsRoot,
-      });
+    for (const lesson of inner.lessons) {
+      lessons.push(lesson.info);
     }
   }
 
   return { lessons, warnings };
+}
+
+/**
+ * Eager-load the lesson + sections for a single namespaced slug. Used by
+ * tools that need the full manifests, not just the public summary.
+ */
+export function loadLessonBySlug(
+  courses: readonly DiscoveredCourse[],
+  namespacedSlug: string,
+): { ok: true; lesson: LessonData; sections: SectionsManifest; info: LessonInfo }
+| { ok: false; error: string } {
+  const slashIdx = namespacedSlug.indexOf('/');
+  if (slashIdx <= 0) {
+    return { ok: false, error: `Slug must be namespaced as <course>/<lesson> (got '${namespacedSlug}')` };
+  }
+  const courseName = namespacedSlug.slice(0, slashIdx);
+  const lessonSlug = namespacedSlug.slice(slashIdx + 1);
+  const course = courses.find((c) => c.name === courseName);
+  if (!course) {
+    return { ok: false, error: `Course '${courseName}' is not discovered.` };
+  }
+  const scan = scanLessonsRoot(course.lessonsRoot, course.name);
+  const hit = scan.lessons.find((l) => l.lesson.slug === lessonSlug);
+  if (!hit) {
+    return { ok: false, error: `Lesson '${lessonSlug}' not found in course '${courseName}'.` };
+  }
+  return { ok: true, lesson: hit.lesson, sections: hit.sections, info: hit.info };
 }

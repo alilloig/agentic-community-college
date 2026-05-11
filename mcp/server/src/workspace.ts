@@ -1,7 +1,7 @@
 // Lesson workspace lifecycle.
 //
-// Each path with a workspace block in path.json gets a course-managed
-// workspace under ~/.sui-deepbook-course/workspaces/<slug>/. The workspace is:
+// Each lesson with a workspace block in lesson.json gets a course-managed
+// workspace under ~/.acc/workspaces/<slug>/. The workspace is:
 //   - seeded with the path's host directory (package.json, vite.config.ts,
 //     tsconfig*, index.html, src/main.tsx, etc.)
 //   - populated with starter files declared in path.json workspace.files[]
@@ -21,10 +21,9 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import { spawn as defaultSpawn, type SpawnOptions } from 'node:child_process';
-import type { PathData } from './schemas/path.js';
+import type { LessonData } from './schemas/lesson.js';
 import { validateWorkspaceMeta, WORKSPACE_META_SCHEMA_VERSION } from './schemas/workspace.js';
 import type { WorkspaceMeta } from './schemas/workspace.js';
-import { resolvePathContentRoot } from './pathsRoot.js';
 
 export type { WorkspaceMeta };
 
@@ -34,15 +33,11 @@ const HOST_INSTALL_BACKOFF_MS = 250;
 
 export interface WorkspaceOptions {
   /** Override for the workspace base directory. Defaults to
-   * ~/.sui-deepbook-course/workspaces. Tests redirect this to a tmpdir. */
+   * ~/.acc/workspaces. Tests redirect this to a tmpdir. */
   basePath?: string;
   /** Override for the install command spawn. Tests stub this; production
    * leaves it undefined and we fall back to node:child_process.spawn. */
   spawn?: typeof defaultSpawn;
-  /** Override for the path-content root used to resolve `host` and `starter`
-   * paths. Defaults to <projectRoot>/paths/<slug>. Tests override this to
-   * point at fixtures. */
-  pathContentRoot?: string;
 }
 
 export interface PrepareWorkspaceResult {
@@ -79,7 +74,7 @@ export class WorkspacePrepareError extends Error {
 }
 
 export function defaultWorkspaceBase(): string {
-  return path.join(os.homedir(), '.sui-deepbook-course', 'workspaces');
+  return path.join(os.homedir(), '.acc', 'workspaces');
 }
 
 export function getWorkspacePath(slug: string, opts: WorkspaceOptions = {}): string {
@@ -90,23 +85,27 @@ export function getWorkspacePath(slug: string, opts: WorkspaceOptions = {}): str
 /**
  * Idempotent: if an existing workspace's .course-state.json matches the
  * current host tarball signature, reuse it. Otherwise archive and recreate.
+ *
+ * `lessonDir` must be the absolute path to the lesson directory inside its
+ * owning course plugin (e.g. `<plugin install>/lessons/<slug>/`). The host
+ * and starter paths declared in `lessonData.workspace` are resolved against
+ * it.
  */
 export async function prepareWorkspace(
-  projectRoot: string,
   slug: string,
-  pathData: PathData,
+  lessonDir: string,
+  lessonData: LessonData,
   opts: WorkspaceOptions = {},
 ): Promise<PrepareWorkspaceResult> {
-  if (!pathData.workspace) {
+  if (!lessonData.workspace) {
     throw new WorkspacePrepareError(
       'invalid-config',
-      `Path '${slug}' declares no workspace block; cannot prepare workspace.`,
+      `Lesson '${slug}' declares no workspace block; cannot prepare workspace.`,
     );
   }
 
   const workspacePath = getWorkspacePath(slug, opts);
-  const pathContentRoot = opts.pathContentRoot ?? resolvePathContentRoot(projectRoot, slug);
-  const hostDir = path.join(pathContentRoot, pathData.workspace.host);
+  const hostDir = path.join(lessonDir, lessonData.workspace.host);
 
   // 1. Compute the current host signature from the path's host directory.
   let hostSignature: string;
@@ -149,8 +148,8 @@ export async function prepareWorkspace(
 
   // 4b. Copy starter files into their declared workspace paths.
   const starterFiles: string[] = [];
-  for (const file of pathData.workspace.files) {
-    const starterAbs = path.join(pathContentRoot, file.starter);
+  for (const file of lessonData.workspace.files) {
+    const starterAbs = path.join(lessonDir, file.starter);
     const targetAbs = path.join(workspacePath, file.path);
     if (!(await pathExists(starterAbs))) {
       throw new WorkspacePrepareError(
@@ -165,9 +164,9 @@ export async function prepareWorkspace(
 
   // 4c. Run host install command if declared.
   let installLogs: string[] | undefined;
-  if (pathData.workspace.host_install_command) {
+  if (lessonData.workspace.host_install_command) {
     installLogs = await runHostInstall(
-      pathData.workspace.host_install_command,
+      lessonData.workspace.host_install_command,
       workspacePath,
       opts,
     );

@@ -6,10 +6,12 @@ import type { State } from './schemas/state.js';
 
 export type { State };
 
-export const STATE_SCHEMA_VERSION = 3;
+export const STATE_SCHEMA_VERSION = 4;
 
-const STATE_DIR = '.sui-deepbook-course';
+const STATE_DIR = '.acc';
 const STATE_FILE = 'state.json';
+
+export const STATE_DIR_NAME = STATE_DIR;
 
 export type LoadStateResult =
   | { kind: 'absent' }

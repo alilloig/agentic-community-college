@@ -1,12 +1,11 @@
-import * as path from 'node:path';
-import * as fsPromises from 'node:fs/promises';
 import { loadState, saveState } from '../state.js';
-import { validatePath } from '../schemas/path.js';
-import type { PathData } from '../schemas/path.js';
-import { validatePersonalizationValues } from '../personalization.js';
-import type { PersonalizationOptionDecl } from '../personalization.js';
+import {
+  validatePersonalizationValues,
+  type PersonalizationOptionDecl,
+} from '../personalization.js';
 import { probeOutputStyle } from '../outputStyle.js';
-import { resolvePathContentRoot } from '../pathsRoot.js';
+import { discoverCourses } from '../pluginsRoot.js';
+import { loadLessonBySlug } from '../registry.js';
 
 export interface SetPersonalizationResult {
   ok: boolean;
@@ -20,13 +19,12 @@ export async function runSetPersonalization({
   projectRoot: string;
   values: Record<string, unknown>;
 }): Promise<SetPersonalizationResult> {
-  // L002 carry-forward: outputStyleOk gate runs BEFORE any state load
+  // Output-style gate before any state load.
   const styleCheck = await probeOutputStyle();
   if (!styleCheck.ok) {
     return { ok: false, errors: ['output-style-disabled'] };
   }
 
-  // Load state — short-circuit on corrupt/schema-mismatch
   const stateResult = await loadState(projectRoot);
   if (stateResult.kind === 'corrupt') {
     return { ok: false, errors: [`State corrupt: ${stateResult.message}`] };
@@ -34,71 +32,63 @@ export async function runSetPersonalization({
   if (stateResult.kind === 'schema-mismatch') {
     return { ok: false, errors: [`State schema mismatch: ${stateResult.message}`] };
   }
-
-  // Require selected_path
-  if (stateResult.kind === 'absent' || !stateResult.state.selected_path) {
-    return { ok: false, errors: ['No path selected. Call selectPath first.'] };
+  if (stateResult.kind === 'absent' || !stateResult.state.selected_lesson) {
+    return { ok: false, errors: ['No lesson selected. Call selectLesson first.'] };
   }
 
   const state = stateResult.state;
-  const slug = state.selected_path;
+  const namespacedSlug = state.selected_lesson;
 
-  // Load path.json to get declared options
-  let pathData: PathData;
-  try {
-    const pathJsonPath = path.join(resolvePathContentRoot(projectRoot, slug), 'path.json');
-    const raw = await fsPromises.readFile(pathJsonPath, 'utf8');
-    const parsed: unknown = JSON.parse(raw);
-    const validation = validatePath(parsed);
-    if (!validation.ok) {
-      return { ok: false, errors: [`Invalid path.json: ${validation.error}`] };
-    }
-    pathData = validation.value;
-  } catch (err) {
-    return { ok: false, errors: [`Failed to load path.json: ${String(err)}`] };
+  const discovery = discoverCourses();
+  const loaded = loadLessonBySlug(discovery.courses, namespacedSlug);
+  if (!loaded.ok) {
+    return { ok: false, errors: [loaded.error] };
   }
+  const lesson = loaded.lesson;
 
-  // Build declared options for validation
+  // Build declared options from the lesson's personalization block.
   const declaredOptions: PersonalizationOptionDecl[] = [];
-  for (const opt of pathData.personalization_options) {
-    if (opt === 'poll_interval_ms') {
-      const range = pathData.personalization_ranges?.poll_interval_ms ?? {
-        min: 1000,
-        max: 30000,
-        default: 3000,
+  for (const optName of lesson.personalization_options) {
+    const range = lesson.personalization_ranges?.[optName];
+    if (range === undefined) {
+      // Declared in personalization_options but no range = error: a well-formed
+      // lesson always pairs them. Surface so the author fixes it.
+      return {
+        ok: false,
+        errors: [
+          `Lesson '${namespacedSlug}' declares personalization_options=${optName} but personalization_ranges has no entry for it.`,
+        ],
       };
+    }
+    if ('values' in range) {
       declaredOptions.push({
-        name: 'poll_interval_ms',
+        name: optName,
+        type: 'enum',
+        enum: range.values,
+        default: range.default,
+      });
+    } else {
+      declaredOptions.push({
+        name: optName,
         type: 'integer',
         range: { min: range.min, max: range.max, default: range.default },
       });
-    } else if (opt === 'pool_subset') {
-      const ps = pathData.personalization_ranges?.pool_subset ?? {
-        values: ['both', 'DEEP_SUI', 'SUI_USDC'],
-        default: 'both',
-      };
-      declaredOptions.push({
-        name: 'pool_subset',
-        type: 'enum',
-        enum: ps.values,
-        default: ps.default,
-      });
     }
   }
 
-  // Validate the submitted values
-  const validationResult = validatePersonalizationValues(values, declaredOptions);
-  if (!validationResult.ok) {
-    return { ok: false, errors: validationResult.errors };
+  const validation = validatePersonalizationValues(values, declaredOptions);
+  if (!validation.ok) {
+    return { ok: false, errors: validation.errors };
   }
 
-  // Apply defaults for absent keys (Use defaults path)
-  const merged: Record<string, unknown> = { ...(state.personalization as Record<string, unknown>) };
+  // Merge submitted values with defaults for any absent keys.
+  const merged: Record<string, unknown> = {
+    ...(state.personalization as Record<string, unknown>),
+  };
   for (const opt of declaredOptions) {
     if (values[opt.name] !== undefined) {
       merged[opt.name] = values[opt.name];
     } else if (merged[opt.name] === undefined) {
-      // Apply default when not already set and not provided
       if (opt.type === 'integer' && opt.range !== undefined) {
         merged[opt.name] = opt.range.default;
       } else if (opt.type === 'enum' && opt.default !== undefined) {
@@ -107,11 +97,9 @@ export async function runSetPersonalization({
     }
   }
 
-  // Save state with merged personalization
-  const updatedState = { ...state, personalization: merged };
-  // M002 carry-forward: wrap saveState in try/catch
+  const updated = { ...state, personalization: merged };
   try {
-    await saveState(projectRoot, updatedState);
+    await saveState(projectRoot, updated);
   } catch (err) {
     const e = err as Error;
     return { ok: false, errors: [`state-save-failed: ${e.message}`] };
@@ -120,5 +108,4 @@ export async function runSetPersonalization({
   return { ok: true };
 }
 
-// Alias export expected by tests
 export const setPersonalization = runSetPersonalization;

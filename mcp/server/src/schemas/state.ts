@@ -1,17 +1,17 @@
-export interface Cursor {
-  phase_id: string;
-  spot_id: string;
-}
+// State schema v4 — ACC lesson runtime.
+//
+// Migration story: v3 (sui-mcp-course) and earlier states surface as
+// `schema-mismatch` in loadState; the existing flow short-circuits and the
+// learner re-runs selectLesson to mint fresh v4 state. No coercion, no data
+// loss. The corruption-archive path is unchanged.
+//
+// Retired in v4 (vs v3): `cursor: { phase_id, spot_id }`, `ladder`,
+// `selected_style_per_spot`, `prompt_cursor_per_spot`. The new model has no
+// phases, no rungs, no per-spot styles — just an ordered section sequence
+// with a single integer cursor, and a path-wide output-style choice.
 
 export interface Personalization {
   [key: string]: unknown;
-}
-
-export interface LadderRung {
-  hint_used: boolean;
-  reference_shown: boolean;
-  auto_completed: boolean;
-  auto_write_attempted: boolean;
 }
 
 export interface HistoryEntry {
@@ -19,30 +19,32 @@ export interface HistoryEntry {
   event: string;
 }
 
-export type SpotStyleKind = 'fill-in-blank' | 'prompted-agentic';
+export type OutputStyleKind = 'learning' | 'explanatory';
+
+export interface TestStatus {
+  pass: boolean;
+  output?: string;
+  /** ISO-8601 timestamp of the last verifySection run. */
+  ts?: string;
+}
 
 export interface State {
   schema_version: number;
-  selected_path: string;
+  /** Namespaced slug: `<course>/<lesson>` (e.g. `acc-deepbook-course@local/01-market-stats`). */
+  selected_lesson: string;
+  /** Set by setOutputMode between selectLesson and setPersonalization. */
+  selected_output_style: OutputStyleKind;
   personalization: Personalization;
-  cursor: Cursor;
-  ladder: Record<string, LadderRung>;
+  /** Zero-based index into the lesson's sections array. */
+  section_cursor: number;
   history: HistoryEntry[];
-  /** Absolute path to the lesson workspace, populated by selectPath when the
-   * path declares a workspace block. Older state files (schema_version < 2)
-   * omit this. Tools resolve verification cwd and target files against it. */
+  /** Absolute path to the lesson workspace when the lesson declares one. */
   workspace_path?: string;
-  /** Per-spot exercise style choice. PR 1 only honors 'fill-in-blank';
-   * PR 2 lights up 'prompted-agentic'. */
-  selected_style_per_spot?: Record<string, SpotStyleKind>;
-  /** PR 2 — per-spot prompt cursor for the prompted-agentic flow.
-   * Tracks the index of the next prompt the learner has not yet seen. */
-  prompt_cursor_per_spot?: Record<string, number>;
+  /** Result of the last verifySection / final_verification run. */
+  test_status?: TestStatus;
 }
 
-type ValidationResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: string };
+type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
 export function validateState(v: unknown): ValidationResult<State> {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) {
@@ -53,11 +55,18 @@ export function validateState(v: unknown): ValidationResult<State> {
   if (typeof obj['schema_version'] !== 'number') {
     return { ok: false, error: 'schema_version must be a number' };
   }
-
-  if (typeof obj['selected_path'] !== 'string') {
-    return { ok: false, error: 'selected_path must be a string' };
+  if (typeof obj['selected_lesson'] !== 'string' || (obj['selected_lesson'] as string).length === 0) {
+    return { ok: false, error: 'selected_lesson must be a non-empty string' };
   }
-
+  if (
+    obj['selected_output_style'] !== 'learning' &&
+    obj['selected_output_style'] !== 'explanatory'
+  ) {
+    return {
+      ok: false,
+      error: `selected_output_style must be 'learning' or 'explanatory' (got ${JSON.stringify(obj['selected_output_style'])})`,
+    };
+  }
   if (
     typeof obj['personalization'] !== 'object' ||
     obj['personalization'] === null ||
@@ -65,119 +74,57 @@ export function validateState(v: unknown): ValidationResult<State> {
   ) {
     return { ok: false, error: 'personalization must be a non-null object' };
   }
-
   if (
-    typeof obj['cursor'] !== 'object' ||
-    obj['cursor'] === null ||
-    Array.isArray(obj['cursor'])
+    typeof obj['section_cursor'] !== 'number' ||
+    !Number.isInteger(obj['section_cursor']) ||
+    (obj['section_cursor'] as number) < 0
   ) {
-    return { ok: false, error: 'cursor must be a non-null object' };
+    return { ok: false, error: 'section_cursor must be a non-negative integer' };
   }
-  const cursor = obj['cursor'] as Record<string, unknown>;
-  if (typeof cursor['phase_id'] !== 'string') {
-    return { ok: false, error: 'cursor.phase_id must be a string' };
-  }
-  if (typeof cursor['spot_id'] !== 'string') {
-    return { ok: false, error: 'cursor.spot_id must be a string' };
-  }
-
-  if (
-    typeof obj['ladder'] !== 'object' ||
-    obj['ladder'] === null ||
-    Array.isArray(obj['ladder'])
-  ) {
-    return { ok: false, error: 'ladder must be a non-null object' };
-  }
-
   if (!Array.isArray(obj['history'])) {
     return { ok: false, error: 'history must be an array' };
   }
 
-  // Normalize ladder rungs: add auto_write_attempted: false default if absent.
-  const rawLadder = obj['ladder'] as Record<string, unknown>;
-  const normalizedLadder: Record<string, LadderRung> = {};
-  for (const [key, rung] of Object.entries(rawLadder)) {
-    if (typeof rung === 'object' && rung !== null) {
-      const r = rung as Record<string, unknown>;
-      normalizedLadder[key] = {
-        hint_used: typeof r['hint_used'] === 'boolean' ? r['hint_used'] : false,
-        reference_shown: typeof r['reference_shown'] === 'boolean' ? r['reference_shown'] : false,
-        auto_completed: typeof r['auto_completed'] === 'boolean' ? r['auto_completed'] : false,
-        auto_write_attempted: typeof r['auto_write_attempted'] === 'boolean' ? r['auto_write_attempted'] : false,
-      };
-    }
-  }
+  const value: State = {
+    schema_version: obj['schema_version'] as number,
+    selected_lesson: obj['selected_lesson'] as string,
+    selected_output_style: obj['selected_output_style'] as OutputStyleKind,
+    personalization: obj['personalization'] as Personalization,
+    section_cursor: obj['section_cursor'] as number,
+    history: obj['history'] as HistoryEntry[],
+  };
 
-  // Optional v2 fields. Absent in v1 state — left undefined here; the schema
-  // version check (state.ts loadState) is what gates behavioral compatibility,
-  // not field presence.
-  let workspace_path: string | undefined;
   if (obj['workspace_path'] !== undefined) {
     if (typeof obj['workspace_path'] !== 'string') {
       return { ok: false, error: 'workspace_path must be a string when present' };
     }
-    workspace_path = obj['workspace_path'] as string;
+    value.workspace_path = obj['workspace_path'] as string;
   }
 
-  let selected_style_per_spot: Record<string, SpotStyleKind> | undefined;
-  if (obj['selected_style_per_spot'] !== undefined) {
-    if (
-      typeof obj['selected_style_per_spot'] !== 'object' ||
-      obj['selected_style_per_spot'] === null ||
-      Array.isArray(obj['selected_style_per_spot'])
-    ) {
-      return { ok: false, error: 'selected_style_per_spot must be a non-null object when present' };
+  if (obj['test_status'] !== undefined) {
+    const ts = obj['test_status'];
+    if (typeof ts !== 'object' || ts === null || Array.isArray(ts)) {
+      return { ok: false, error: 'test_status must be a non-null object when present' };
     }
-    const raw = obj['selected_style_per_spot'] as Record<string, unknown>;
-    const normalized: Record<string, SpotStyleKind> = {};
-    for (const [spotId, value] of Object.entries(raw)) {
-      if (value !== 'fill-in-blank' && value !== 'prompted-agentic') {
-        return {
-          ok: false,
-          error: `selected_style_per_spot['${spotId}'] must be 'fill-in-blank' or 'prompted-agentic'`,
-        };
+    const tsObj = ts as Record<string, unknown>;
+    if (typeof tsObj['pass'] !== 'boolean') {
+      return { ok: false, error: 'test_status.pass must be a boolean' };
+    }
+    const status: TestStatus = { pass: tsObj['pass'] as boolean };
+    if (tsObj['output'] !== undefined) {
+      if (typeof tsObj['output'] !== 'string') {
+        return { ok: false, error: 'test_status.output must be a string when present' };
       }
-      normalized[spotId] = value;
+      status.output = tsObj['output'] as string;
     }
-    selected_style_per_spot = normalized;
-  }
-
-  const value: State = {
-    schema_version: obj['schema_version'] as number,
-    selected_path: obj['selected_path'] as string,
-    personalization: obj['personalization'] as Personalization,
-    cursor: {
-      phase_id: cursor['phase_id'] as string,
-      spot_id: cursor['spot_id'] as string,
-    },
-    ladder: normalizedLadder,
-    history: obj['history'] as HistoryEntry[],
-  };
-  let prompt_cursor_per_spot: Record<string, number> | undefined;
-  if (obj['prompt_cursor_per_spot'] !== undefined) {
-    if (
-      typeof obj['prompt_cursor_per_spot'] !== 'object' ||
-      obj['prompt_cursor_per_spot'] === null ||
-      Array.isArray(obj['prompt_cursor_per_spot'])
-    ) {
-      return { ok: false, error: 'prompt_cursor_per_spot must be a non-null object when present' };
-    }
-    const raw = obj['prompt_cursor_per_spot'] as Record<string, unknown>;
-    const normalized: Record<string, number> = {};
-    for (const [spotId, val] of Object.entries(raw)) {
-      if (typeof val !== 'number' || !Number.isInteger(val) || val < 0) {
-        return {
-          ok: false,
-          error: `prompt_cursor_per_spot['${spotId}'] must be a non-negative integer`,
-        };
+    if (tsObj['ts'] !== undefined) {
+      if (typeof tsObj['ts'] !== 'string') {
+        return { ok: false, error: 'test_status.ts must be a string when present' };
       }
-      normalized[spotId] = val;
+      status.ts = tsObj['ts'] as string;
     }
-    prompt_cursor_per_spot = normalized;
+    value.test_status = status;
   }
 
-  if (workspace_path !== undefined) value.workspace_path = workspace_path;
-  if (selected_style_per_spot !== undefined) value.selected_style_per_spot = selected_style_per_spot;
-  if (prompt_cursor_per_spot !== undefined) value.prompt_cursor_per_spot = prompt_cursor_per_spot;
   return { ok: true, value };
 }
