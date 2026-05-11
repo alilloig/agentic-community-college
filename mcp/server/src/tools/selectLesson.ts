@@ -25,6 +25,10 @@ export interface SelectLessonResult {
     message: string;
     options: OutputStyleKind[];
   };
+  /** Probe IDs the course-engine must run via runPreflightProbe before
+   * advancing to setPersonalization. Empty/absent when the lesson declares
+   * no prerequisites. */
+  prerequisites?: string[];
   workspacePath?: string;
   workspaceCreated?: boolean;
   workspaceArchivedTo?: string;
@@ -148,6 +152,9 @@ export async function runSelectLesson({
   };
   if (description !== undefined) result.description = description;
   if (personalizationPrompts.length > 0) result.personalizationPrompts = personalizationPrompts;
+  if (lesson.prerequisites && lesson.prerequisites.length > 0) {
+    result.prerequisites = lesson.prerequisites;
+  }
   if (workspacePath !== undefined) result.workspacePath = workspacePath;
   if (workspaceCreated !== undefined) result.workspaceCreated = workspaceCreated;
   if (workspaceArchivedTo !== undefined) result.workspaceArchivedTo = workspaceArchivedTo;

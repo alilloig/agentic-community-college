@@ -28,6 +28,7 @@ Ask the user (using AskUserQuestion where natural) for:
 - **Title**: human-readable, e.g. "DeepBook Market Stats".
 - **Summary**: one-sentence elevator pitch shown in the lesson catalog.
 - **Personalization** (optional): list of free-form keys with their ranges (integer min/max/default) or enums (values/default). Most lessons ship with no personalization.
+- **Prerequisites** (optional): probe IDs from ACC's preflight registry that must pass before the learner can start. Useful when the lesson depends on a live external service (Docker stack, a cloned sibling repo, an RPC endpoint). Allowed IDs: `docker-running`, `node-version`, `pnpm-available`, `sui-cli-version`, `sui-pilot-enabled`, `sandbox-repo-present`, `sandbox-manifest-reachable`, `learning-output-style-enabled`. For lessons with no external dependencies, leave it as `[]`.
 - **Chapter breakdown**: ask whether to (a) **auto-derive** sections from the reference-app's natural milestones (you read the code and propose 5–10 sections), or (b) **manual** (the user names the sections).
 
 ## Step 3 — Seed transform

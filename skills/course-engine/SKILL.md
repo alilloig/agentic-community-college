@@ -18,7 +18,7 @@ Render the result:
 - **Lesson catalog**: List each `result.lessons` entry with its `namespaced_slug`, `title`, and `summary`, grouped by `course_name`. If the catalog is empty (courses present but no lessons), surface the warning array and stop.
 - **Warnings**: If `result.warnings` is non-empty, render each warning's `kind` + `message` so the user can diagnose configuration issues.
 
-In cycle 1, `preflight` is always `{ skipped: true, reason: 'cycle-1' }` and `state` is always `null`. Do not run a preflight loop yet.
+`start` itself never runs preflight probes — it returns `preflight: { skipped: true, reason: 'cycle-1' }` and leaves `state: null`. Probes are run later, in step 3, only when the picked lesson declares prerequisites. Don't try to enumerate every probe up front.
 
 ## 2. Lesson selection
 
@@ -33,20 +33,32 @@ If `result.ok` is `true`:
 - Render `result.description` verbatim if present (it's the lesson's `description.md` body — what the learner is about to build, prerequisites, learning outcomes).
 - If `result.workspaceCreated === true`, briefly mention the workspace was provisioned at `result.workspacePath`. If `result.workspaceArchivedTo` is set, note that an older workspace was archived because the host content changed.
 
-## 3. Output mode
+## 3. Prerequisites
+
+If `result.prerequisites` is a non-empty array, the lesson requires environmental checks before the learner can proceed. For each probe ID in the array, **call `runPreflightProbe({ probeId })`**.
+
+- If the probe returns `pass: true`, move on.
+- If it returns `pass: false` with no `action`, surface the `message` verbatim and tell the learner to fix it manually, then re-run `/agentic-community-college:start` to retry.
+- If it returns `pass: false` with an `action` (a remediation), surface both the message and the action's command. Ask the learner whether to run the remediation. **Only on explicit yes**, call `runPreflightProbe({ probeId, remediate: true })`. If the remediation also fails, stop the session — the learner needs to debug manually.
+
+Block step 4 until every prerequisite returns `pass: true`. Surface a brief status line per probe so the learner can see which checks passed.
+
+If `result.prerequisites` is absent or empty, skip this step entirely.
+
+## 4. Output mode
 
 Render `result.outputModePrompt.message` and ask the user to pick `learning` or `explanatory`. Once chosen, call `setOutputMode({ projectRoot, style })`.
 
 If the result includes a `warnings` entry with `kind: 'output-style-mismatch'`, surface its message — it tells the user their Claude Code session output style doesn't match what they picked in ACC, and how to align them via `/output-style`.
 
-## 4. Personalization
+## 5. Personalization
 
 If `selectLesson` returned a `personalizationPrompts` array, walk it: for each entry, ask the user for a value (or accept the default). Collect the chosen values into a single object and call `setPersonalization({ projectRoot, values })`. Passing `{}` accepts every default.
 
 If the lesson has no personalization options, skip this step (call `setPersonalization({ projectRoot, values: {} })` to lock in the defaults).
 
-## 5. Hand off to the conductor
+## 6. Hand off to the conductor
 
-Once the four MCP setup tools have all returned `ok: true`, dispatch the `course-conductor` agent to drive the section loop. The conductor reads state on its own and walks the learner through each section, advancing the HTML artifact and gating on `verifySection`.
+Once every setup tool (`selectLesson`, the per-prerequisite `runPreflightProbe` runs, `setOutputMode`, `setPersonalization`) has succeeded, dispatch the `course-conductor` agent to drive the section loop. The conductor reads state on its own and walks the learner through each section, advancing the HTML artifact and gating on `verifySection`.
 
 Keep your own narration terse — the conductor takes over the learner-facing voice from here.

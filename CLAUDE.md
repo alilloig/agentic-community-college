@@ -75,9 +75,10 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 7. **State schema versioning is on `STATE_SCHEMA_VERSION = 4`.** Older states (v3 from sui-mcp-course) surface as `schema-mismatch`; the user re-runs `selectLesson` to mint fresh state. Never silently coerce.
 8. **Workspaces are course-owned and idempotent (F-005 carry-forward).** `prepareWorkspace` lives at `~/.acc/workspaces/<slug>/`, fingerprints the host tarball into `host_signature`, and reuses an existing workspace iff that signature matches. Mismatch → archive to `<workspace>.archive-<ts>/` and recreate.
 9. **Verification spawn is injectable.** `runVerification` accepts a `spawn` stub via `VerifyOptions.spawn` for hermetic tests. Don't re-introduce a module-level test override.
-10. **Preflight is skipped in cycle 1.** `start` always returns `preflight: { skipped: true, reason: 'cycle-1' }`. Probes only run via `runPreflightProbe` on subsequent cycles.
-11. **HTML artifact updates flow through `advanceArtifact` only.** Don't have the conductor write `artifact-state.json` directly — the atomic-write seam is what makes the page poller's reads safe.
-12. **Path safety is non-negotiable.** Anything that resolves a lesson-relative path (template files, body_md, host directory, verification cwd) goes through `pathSafety.containedPath` or the schema validators' `isLessonRelPath`. Reject `..` segments and leading slashes.
+10. **`start` never runs preflight probes.** It returns `preflight: { skipped: true, reason: 'cycle-1' }` and leaves `state: null`. Probes only run via `runPreflightProbe`, invoked by the course-engine **after `selectLesson`** when the loaded lesson declares `prerequisites`. Don't surface a preflight loop in `start`.
+11. **Lesson prerequisites are probe-IDs only.** `lesson.json:prerequisites` must list IDs from `preflight.ts:PROBE_ORDER`. The schema mirrors that list inline (`schemas/lesson.ts:KNOWN_PROBE_IDS`); the cross-reference test in `tests/lesson.schema.test.ts` catches drift. Domain-specific probes (`sandbox-*`) stay in ACC for now even though they're DeepBook-flavored — moving them into the content plugin is a future refactor once a second course exists.
+12. **HTML artifact updates flow through `advanceArtifact` only.** Don't have the conductor write `artifact-state.json` directly — the atomic-write seam is what makes the page poller's reads safe.
+13. **Path safety is non-negotiable.** Anything that resolves a lesson-relative path (template files, body_md, host directory, verification cwd) goes through `pathSafety.containedPath` or the schema validators' `isLessonRelPath`. Reject `..` segments and leading slashes.
 
 ## Verification Modes
 

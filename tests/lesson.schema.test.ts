@@ -138,4 +138,55 @@ describe('validateLesson', () => {
       expect(r.value.workspace?.files).toHaveLength(1);
     }
   });
+
+  it('accepts a prerequisites array of known probe IDs', () => {
+    const r = validateLesson({
+      ...baseLesson(),
+      prerequisites: ['docker-running', 'sandbox-manifest-reachable'],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.prerequisites).toEqual([
+        'docker-running',
+        'sandbox-manifest-reachable',
+      ]);
+    }
+  });
+
+  it('accepts an empty prerequisites array', () => {
+    const r = validateLesson({ ...baseLesson(), prerequisites: [] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.prerequisites).toEqual([]);
+  });
+
+  it('rejects a prerequisites entry that is not a known probe ID', () => {
+    const r = validateLesson({
+      ...baseLesson(),
+      prerequisites: ['docker-running', 'totally-fake-probe'],
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/totally-fake-probe/);
+  });
+
+  it('rejects prerequisites when not an array', () => {
+    const r = validateLesson({
+      ...baseLesson(),
+      prerequisites: 'docker-running',
+    } as unknown);
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe('validateLesson — prerequisites probe-ID cross-reference', () => {
+  // The KNOWN_PROBE_IDS set inside schemas/lesson.ts is mirrored from
+  // preflight.ts:PROBE_ORDER (kept inline to keep schemas dep-free). Catch
+  // drift early: every preflight probe must be a valid prerequisite, and
+  // no invalid probe ID should slip through.
+  it('every PROBE_ORDER id is accepted as a prerequisite', async () => {
+    const { PROBE_ORDER } = await import('../mcp/server/src/preflight.js');
+    for (const probeId of PROBE_ORDER) {
+      const r = validateLesson({ ...baseLesson(), prerequisites: [probeId] });
+      expect(r.ok, r.ok ? '' : `${probeId}: ${r.error}`).toBe(true);
+    }
+  });
 });

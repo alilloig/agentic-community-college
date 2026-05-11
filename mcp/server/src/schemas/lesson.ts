@@ -61,7 +61,24 @@ export interface LessonData {
   personalization_ranges?: PersonalizationRanges;
   workspace?: WorkspaceConfig;
   artifact?: ArtifactConfig;
+  /** Probe IDs the conductor must pass before the learner starts. Each entry
+   * must match one of `preflight.ts:PROBE_ORDER`. The course-engine runs each
+   * via `runPreflightProbe` between `selectLesson` and `setPersonalization`. */
+  prerequisites?: string[];
 }
+
+// Mirrored from preflight.ts:PROBE_ORDER. Kept inline here to keep schema
+// modules dependency-free; the cross-reference is enforced by tests.
+const KNOWN_PROBE_IDS: ReadonlySet<string> = new Set([
+  'docker-running',
+  'node-version',
+  'pnpm-available',
+  'sui-cli-version',
+  'sui-pilot-enabled',
+  'sandbox-repo-present',
+  'sandbox-manifest-reachable',
+  'learning-output-style-enabled',
+]);
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
@@ -283,6 +300,30 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     }
   }
 
+  let prerequisites: string[] | undefined;
+  if (obj['prerequisites'] !== undefined) {
+    if (!Array.isArray(obj['prerequisites'])) {
+      return { ok: false, error: 'prerequisites must be an array when present' };
+    }
+    const list: string[] = [];
+    for (const entry of obj['prerequisites'] as unknown[]) {
+      if (typeof entry !== 'string' || entry.length === 0) {
+        return {
+          ok: false,
+          error: `prerequisites entries must be non-empty strings (got ${JSON.stringify(entry)})`,
+        };
+      }
+      if (!KNOWN_PROBE_IDS.has(entry)) {
+        return {
+          ok: false,
+          error: `prerequisites entry '${entry}' is not a known probe ID. Allowed: ${[...KNOWN_PROBE_IDS].join(', ')}`,
+        };
+      }
+      list.push(entry);
+    }
+    prerequisites = list;
+  }
+
   const result: LessonData = {
     slug: obj['slug'] as string,
     title: obj['title'] as string,
@@ -294,5 +335,6 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
   if (personalization_ranges !== undefined) result.personalization_ranges = personalization_ranges;
   if (workspace !== undefined) result.workspace = workspace;
   if (artifact !== undefined) result.artifact = artifact;
+  if (prerequisites !== undefined) result.prerequisites = prerequisites;
   return { ok: true, value: result };
 }
