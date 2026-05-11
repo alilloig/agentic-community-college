@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ title }} — ACC artifact</title>
+<style>
+  :root {
+    --bg: #0e1117;
+    --panel: #161b22;
+    --panel-2: #1f242d;
+    --border: #2a313c;
+    --fg: #d5d9e0;
+    --muted: #8b94a7;
+    --accent: #79b8ff;
+    --good: #6dd56d;
+    --warn: #e6c07b;
+    --bad: #e08585;
+    --code-bg: #0b0e13;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg);
+    color: var(--fg);
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  body { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2rem 0 .6rem; padding-bottom: .3rem; border-bottom: 1px solid var(--border); }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; color: #f0f3f7; }
+  .lede { color: var(--muted); }
+  section.acc-section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    margin: 1rem 0;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .4s ease, transform .4s ease;
+    pointer-events: none;
+    height: 0;
+    overflow: hidden;
+    padding-top: 0;
+    padding-bottom: 0;
+    margin: 0;
+  }
+  section.acc-section[data-visible="true"] {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+    height: auto;
+    padding: 1.2rem 1.4rem;
+    margin: 1rem 0;
+  }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: var(--panel-2); color: var(--accent); margin-right: .5rem; }
+  .meta { color: var(--muted); font-size: 0.85rem; margin-top: .5rem; }
+  svg { max-width: 100%; height: auto; }
+</style>
+</head>
+<body>
+
+<h1>{{ title }}</h1>
+<p class="lede" id="acc-progress">Lesson loading…</p>
+
+<!-- Repeat one <section data-section-id="…"> per lesson section.
+     Replace each placeholder with hand-drawn SVG + per-section narrative. -->
+
+<section class="acc-section" data-section-id="s01-bootstrap">
+  <h2><span class="badge">Section 1</span> First section</h2>
+  <p>Replace this with the section's visual diagram and a short explanation. Use inline SVG for boxes-and-arrows. Keep prose minimal — depth lives here, brevity lives in the agent's chat.</p>
+</section>
+
+<!-- Add more <section> blocks here, one per lesson section. -->
+
+<script>
+  // ACC artifact poller. Re-reads ./artifact-state.json every 2 seconds and
+  // reveals sections whose id appears in `revealed[]`. The MCP tool
+  // `advanceArtifact` rewrites artifact-state.json atomically; this poller
+  // is what makes the page "evolve" without a server.
+  (async function poll() {
+    const progress = document.getElementById('acc-progress');
+    let lastUpdate = '';
+    while (true) {
+      try {
+        const r = await fetch('./artifact-state.json?_=' + Date.now(), { cache: 'no-store' });
+        if (r.ok) {
+          const s = await r.json();
+          if (s.updated_at !== lastUpdate) {
+            lastUpdate = s.updated_at;
+            const revealed = new Set(s.revealed || []);
+            for (const sec of document.querySelectorAll('section.acc-section')) {
+              const id = sec.getAttribute('data-section-id');
+              sec.setAttribute('data-visible', revealed.has(id) ? 'true' : 'false');
+            }
+            const cur = (typeof s.cursor === 'number') ? s.cursor + 1 : 0;
+            const total = s.total_sections ?? 0;
+            const mode = s.mode ?? '?';
+            progress.textContent = `Section ${cur} of ${total} · output mode: ${mode}`;
+          }
+        }
+      } catch (e) {
+        /* swallow — file may be mid-rename */
+      }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+  })();
+</script>
+
+</body>
+</html>
