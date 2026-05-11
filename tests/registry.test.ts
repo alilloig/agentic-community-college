@@ -8,9 +8,10 @@ import { fileURLToPath } from 'node:url';
 // Their imports failing causes vitest to fail the suite, which is the
 // meaningful red signal. The assertion bodies below describe the behavior
 // the implementer must produce in green.
-import { scanRegistry } from '../mcp/server/src/registry.js';
+import { scanRegistry, scanCourses } from '../mcp/server/src/registry.js';
 import { validatePath } from '../mcp/server/src/schemas/path.js';
 import { validatePhases } from '../mcp/server/src/schemas/phases.js';
+import type { DiscoveredCourse } from '../mcp/server/src/pluginsRoot.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -643,5 +644,82 @@ describe('cycle 4 — path.json personalization_ranges (A5)', () => {
       values: ['both', 'DEEP_SUI', 'SUI_USDC'],
       default: 'both',
     });
+  });
+});
+
+// P2: scanCourses aggregates lessons across all discovered course plugins
+// and namespaces each lesson's slug with the owning course's plugin key.
+describe('scanCourses', () => {
+  function buildCourse(slug: string, opts: { lessonSlugs: string[] }): {
+    course: DiscoveredCourse;
+    cleanup: () => void;
+  } {
+    const lessonsRoot = makeTempRoot(`acc-course-${slug}-`);
+    for (const lessonSlug of opts.lessonSlugs) {
+      makeWellFormedPath(lessonsRoot, lessonSlug);
+    }
+    return {
+      course: { name: `${slug}@local`, dir: lessonsRoot, lessonsRoot },
+      cleanup: () => {
+        /* makeTempRoot already tracks for teardown in afterEach */
+      },
+    };
+  }
+
+  it('returns an empty result for an empty course list', async () => {
+    const result = await scanCourses([]);
+    expect(result.lessons).toEqual([]);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('namespaces lesson slugs with the course key', async () => {
+    const { course } = buildCourse('deepbook', { lessonSlugs: ['01-orderbook-viewer'] });
+    const result = await scanCourses([course]);
+    expect(result.warnings).toEqual([]);
+    expect(result.lessons).toHaveLength(1);
+    expect(result.lessons[0].slug).toBe('01-orderbook-viewer');
+    expect(result.lessons[0].course_name).toBe('deepbook@local');
+    expect(result.lessons[0].namespaced_slug).toBe('deepbook@local/01-orderbook-viewer');
+    expect(result.lessons[0].lessons_root).toBe(course.lessonsRoot);
+  });
+
+  it('aggregates lessons across multiple courses, keeping namespacing intact', async () => {
+    const { course: deepbook } = buildCourse('deepbook', {
+      lessonSlugs: ['01-orderbook-viewer'],
+    });
+    const { course: walrus } = buildCourse('walrus', {
+      lessonSlugs: ['01-blob-basics', '02-quilts'],
+    });
+
+    const result = await scanCourses([deepbook, walrus]);
+    expect(result.warnings).toEqual([]);
+    expect(result.lessons).toHaveLength(3);
+
+    const slugs = result.lessons.map((l) => l.namespaced_slug).sort();
+    expect(slugs).toEqual([
+      'deepbook@local/01-orderbook-viewer',
+      'walrus@local/01-blob-basics',
+      'walrus@local/02-quilts',
+    ]);
+  });
+
+  it('forwards per-course registry warnings (e.g. malformed lesson)', async () => {
+    const lessonsRoot = makeTempRoot('acc-course-bad-');
+    // valid lesson
+    makeWellFormedPath(lessonsRoot, '01-good');
+    // malformed lesson — path.json missing required fields
+    writeJson(path.join(lessonsRoot, '02-bad', 'path.json'), { slug: '02-bad' });
+
+    const course: DiscoveredCourse = {
+      name: 'bad@local',
+      dir: lessonsRoot,
+      lessonsRoot,
+    };
+    const result = await scanCourses([course]);
+
+    expect(result.lessons).toHaveLength(1);
+    expect(result.lessons[0].slug).toBe('01-good');
+    expect(result.warnings.length).toBeGreaterThanOrEqual(1);
+    expect(result.warnings.some((w) => w.kind === 'invalid-path-json')).toBe(true);
   });
 });

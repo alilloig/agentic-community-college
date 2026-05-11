@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { validatePath } from './schemas/path.js';
 import { validatePhases } from './schemas/phases.js';
+import type { DiscoveredCourse } from './pluginsRoot.js';
 import type { RegistryWarning } from './warnings.js';
 
 export type { RegistryWarning };
@@ -16,6 +17,26 @@ export interface PathInfo {
 
 export interface RegistryResult {
   paths: PathInfo[];
+  warnings: RegistryWarning[];
+}
+
+/**
+ * A lesson discovered via a course plugin. Carries the path-level fields plus
+ * namespacing back to the owning course so MCP tools can resolve lesson content
+ * unambiguously even when multiple courses ship a lesson with the same internal
+ * slug.
+ */
+export interface LessonInfo extends PathInfo {
+  /** Plugin key of the owning course (e.g. `acc-deepbook-course@local`). */
+  course_name: string;
+  /** Course-prefixed slug used as the public identifier: `<course>/<slug>`. */
+  namespaced_slug: string;
+  /** Absolute path to the course's lessons root. */
+  lessons_root: string;
+}
+
+export interface CoursesRegistryResult {
+  lessons: LessonInfo[];
   warnings: RegistryWarning[];
 }
 
@@ -151,4 +172,34 @@ export async function scanRegistry(scanRoot: string): Promise<RegistryResult> {
   }
 
   return { paths, warnings };
+}
+
+/**
+ * Aggregate lessons across every discovered course. Each course's
+ * `lessonsRoot` is scanned through the existing single-root `scanRegistry`,
+ * and the results are namespaced by course name so a downstream tool can
+ * always tell which course a lesson belongs to.
+ *
+ * Warnings from per-course scans are passed through unchanged.
+ */
+export async function scanCourses(
+  courses: readonly DiscoveredCourse[],
+): Promise<CoursesRegistryResult> {
+  const lessons: LessonInfo[] = [];
+  const warnings: RegistryWarning[] = [];
+
+  for (const course of courses) {
+    const inner = await scanRegistry(course.lessonsRoot);
+    warnings.push(...inner.warnings);
+    for (const lesson of inner.paths) {
+      lessons.push({
+        ...lesson,
+        course_name: course.name,
+        namespaced_slug: `${course.name}/${lesson.slug}`,
+        lessons_root: course.lessonsRoot,
+      });
+    }
+  }
+
+  return { lessons, warnings };
 }
