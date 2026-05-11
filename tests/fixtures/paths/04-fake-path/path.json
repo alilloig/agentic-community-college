@@ -1,0 +1,7 @@
+{
+  "slug": "04-fake-path",
+  "title": "Fake Fourth Path",
+  "summary": "fixture for parametricity proof",
+  "personalization_options": ["poll_interval_ms", "pool_subset"],
+  "build_command": "pnpm build"
+}

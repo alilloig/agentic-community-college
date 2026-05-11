@@ -1,0 +1,25 @@
+{
+  "schema_version": 3,
+  "selected_path": "01-orderbook-viewer",
+  "personalization": {
+    "poll_interval_ms": 3000,
+    "pool_subset": "both"
+  },
+  "cursor": {
+    "phase_id": "p2-retry",
+    "spot_id": "p2-spot-1"
+  },
+  "ladder": {
+    "p1-spot-1": {
+      "hint_used": true,
+      "reference_shown": false,
+      "auto_completed": false,
+      "auto_write_attempted": false
+    }
+  },
+  "history": [
+    { "ts": "2026-04-28T12:00:00Z", "event": "start" },
+    { "ts": "2026-04-28T12:01:00Z", "event": "preflight_pass" },
+    { "ts": "2026-04-28T12:05:00Z", "event": "spot_complete:p1-spot-1" }
+  ]
+}

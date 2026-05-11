@@ -1,0 +1,22 @@
+{
+  "schema_version": 999,
+  "selected_path": "01-orderbook-viewer",
+  "personalization": {
+    "poll_interval_ms": 3000,
+    "pool_subset": "both"
+  },
+  "cursor": {
+    "phase_id": "p1-bootstrap",
+    "spot_id": "p1-spot-1"
+  },
+  "ladder": {
+    "p1-spot-1": {
+      "hint_used": false,
+      "reference_shown": false,
+      "auto_completed": false
+    }
+  },
+  "history": [
+    { "ts": "2026-04-28T12:00:00Z", "event": "start" }
+  ]
+}

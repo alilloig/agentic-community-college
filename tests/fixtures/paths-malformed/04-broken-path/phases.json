@@ -1,0 +1,5 @@
+{
+  "phases": [
+    { "id": "p1", "spots": [{ "id": "s1", "title": "stub" }] }
+  ]
+}
