@@ -1,23 +1,52 @@
+---
+name: course-engine
+description: ACC entry-point skill — invoked by /agentic-community-college:start. Renders the discovered courses and their lessons, lets the learner pick one, walks them through output-mode selection and personalization via MCP tools, then hands off to the course-conductor agent for the section loop.
+---
+
 # Course Engine Skill
 
-When the user invokes `/sui-deepbook-course:start`, follow these steps:
+When the user invokes `/agentic-community-college:start`, follow these steps.
 
-1. Call the `start` MCP tool with the current project root as `projectRoot`.
+## 1. Probe the session
 
-2. Render the result:
-   - **Output Style**: If `outputStyleOk` is `true`, confirm the learning output style plugin is active. If `false`, advise the user to enable `learning-output-style@claude-plugins-official` for the best experience (this is advisory only — the course still runs).
-   - **Available Paths**: List each entry in `paths` with its `title` and `summary`. If `paths` is empty, inform the user that no learning paths are installed.
-   - **Warnings**: If `warnings` is non-empty, display each warning's `kind` and `message` to help the user diagnose configuration issues.
+Call the `start` MCP tool with the user's `projectRoot` (the working directory).
 
-3. In cycle 1, `preflight` is always `{ skipped: true, reason: "cycle-1" }` and `state` is always `null`. Do not prompt for path selection or lesson flow yet.
+Render the result:
 
-## After path selection (F-002)
+- **Output style**: If `outputStyleOk` is `true`, briefly confirm the learning output style plugin is active. If `false`, advise the user to enable `learning-output-style@claude-plugins-official` for the best experience (advisory — ACC still runs without it, but the tool gate stays closed).
+- **Discovered courses**: List `result.courses` (plugin keys). If empty, tell the user no course plugins are enabled and stop — there is nothing to learn until they install one.
+- **Lesson catalog**: List each `result.lessons` entry with its `namespaced_slug`, `title`, and `summary`, grouped by `course_name`. If the catalog is empty (courses present but no lessons), surface the warning array and stop.
+- **Warnings**: If `result.warnings` is non-empty, render each warning's `kind` + `message` so the user can diagnose configuration issues.
 
-When the user picks a path, call `selectPath({ projectRoot, slug })`.
+In cycle 1, `preflight` is always `{ skipped: true, reason: 'cycle-1' }` and `state` is always `null`. Do not run a preflight loop yet.
+
+## 2. Lesson selection
+
+Ask the user which lesson they want to take. They should refer to it by its `namespaced_slug` (e.g. `acc-deepbook-course@local/01-market-stats`).
+
+When they pick one, call `selectLesson({ projectRoot, slug })`.
+
+If `result.ok` is `false`, surface `result.errors` verbatim and stop.
 
 If `result.ok` is `true`:
-- **Render `result.description`** verbatim if present. This is the path's `description.md` body — what the learner is about to build, prerequisites, learning outcomes, duration. Show it BEFORE asking for personalization so the learner can opt out before tweaking knobs they don't yet understand.
-- Then walk through `result.personalizationPrompts` to collect the learner's choices, and call `setPersonalization` with them.
-- If `result.workspaceCreated` is `true`, briefly mention that the course has provisioned a fresh workspace at `result.workspacePath`. If `result.workspaceArchivedTo` is set, note that an older workspace was archived (host content changed).
 
-If `result.ok` is `false`, surface `result.errors` and stop.
+- Render `result.description` verbatim if present (it's the lesson's `description.md` body — what the learner is about to build, prerequisites, learning outcomes).
+- If `result.workspaceCreated === true`, briefly mention the workspace was provisioned at `result.workspacePath`. If `result.workspaceArchivedTo` is set, note that an older workspace was archived because the host content changed.
+
+## 3. Output mode
+
+Render `result.outputModePrompt.message` and ask the user to pick `learning` or `explanatory`. Once chosen, call `setOutputMode({ projectRoot, style })`.
+
+If the result includes a `warnings` entry with `kind: 'output-style-mismatch'`, surface its message — it tells the user their Claude Code session output style doesn't match what they picked in ACC, and how to align them via `/output-style`.
+
+## 4. Personalization
+
+If `selectLesson` returned a `personalizationPrompts` array, walk it: for each entry, ask the user for a value (or accept the default). Collect the chosen values into a single object and call `setPersonalization({ projectRoot, values })`. Passing `{}` accepts every default.
+
+If the lesson has no personalization options, skip this step (call `setPersonalization({ projectRoot, values: {} })` to lock in the defaults).
+
+## 5. Hand off to the conductor
+
+Once the four MCP setup tools have all returned `ok: true`, dispatch the `course-conductor` agent to drive the section loop. The conductor reads state on its own and walks the learner through each section, advancing the HTML artifact and gating on `verifySection`.
+
+Keep your own narration terse — the conductor takes over the learner-facing voice from here.
