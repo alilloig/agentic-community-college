@@ -1,0 +1,15 @@
+node_modules/
+.vitest-cache/
+dist/
+.DS_Store
+*.log
+
+# Personal session memory (not part of the project artifact)
+.remember/
+
+# Per-project ACC state (created by the MCP server when this repo is itself
+# used as a projectRoot during local testing).
+.acc/
+
+# Build / coverage artifacts
+coverage/

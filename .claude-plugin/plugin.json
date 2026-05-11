@@ -1,0 +1,26 @@
+{
+  "name": "agentic-community-college",
+  "version": "0.1.0",
+  "description": "Agentic Community College — a Claude Code learning framework that runs reference-seeded coding lessons through MCP. Bring your own course (content plugin) to teach any domain.",
+  "author": {
+    "name": "alilloig"
+  },
+  "keywords": [
+    "learning",
+    "course",
+    "lesson",
+    "tutorial",
+    "mcp",
+    "claude-code",
+    "framework"
+  ],
+  "commands": ["./commands/start.md"],
+  "agents": ["./agents/course-conductor.md"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "agentic-community-college": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp/server/dist/index.js"]
+    }
+  }
+}
