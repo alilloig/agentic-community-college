@@ -65,34 +65,50 @@ describe('agents/course-conductor.md frontmatter', () => {
     expect(tools.length).toBeGreaterThan(0);
   });
 
-  it('lists the three load-bearing MCP tools under the canonical short form', () => {
+  it('lists the three load-bearing MCP tools under the canonical long form', () => {
     const required = [
-      'mcp__agentic-community-college__advanceArtifact',
-      'mcp__agentic-community-college__nextSection',
-      'mcp__agentic-community-college__verifySection',
+      'mcp__plugin_agentic-community-college_agentic-community-college__advanceArtifact',
+      'mcp__plugin_agentic-community-college_agentic-community-college__nextSection',
+      'mcp__plugin_agentic-community-college_agentic-community-college__verifySection',
     ];
     for (const tool of required) {
       expect(tools, `missing required MCP tool: ${tool}`).toContain(tool);
     }
   });
 
+  it('lists AskUserQuestion so the conductor can pause between sections', () => {
+    // Pacing — the conductor MUST pause via AskUserQuestion at the end of
+    // each section. Without this binding the loop would silently blast
+    // through multiple sections per turn, even in explanatory mode.
+    expect(tools).toContain('AskUserQuestion');
+  });
+
   it('does NOT reference retired tool names from the old phase/spot runtime', () => {
     const retired = [
-      'mcp__agentic-community-college__selectStyle',
-      'mcp__agentic-community-college__getNextPrompt',
-      'mcp__agentic-community-college__requestHint',
-      'mcp__agentic-community-college__nextSpot',
-      'mcp__agentic-community-college__verifySpot',
+      'selectStyle',
+      'getNextPrompt',
+      'requestHint',
+      'nextSpot',
+      'verifySpot',
     ];
-    for (const tool of retired) {
-      expect(tools, `still references retired tool: ${tool}`).not.toContain(tool);
+    for (const fragment of retired) {
+      for (const tool of tools) {
+        expect(tool, `still references retired tool fragment '${fragment}': ${tool}`).not.toMatch(
+          new RegExp(`__${fragment}$`),
+        );
+      }
     }
   });
 
   it('does NOT include setup-phase tools (those belong to the course-engine skill)', () => {
-    expect(tools).not.toContain('mcp__agentic-community-college__selectLesson');
-    expect(tools).not.toContain('mcp__agentic-community-college__setOutputMode');
-    expect(tools).not.toContain('mcp__agentic-community-college__setPersonalization');
+    const setupTools = ['selectLesson', 'setOutputMode', 'setPersonalization', 'start', 'runPreflightProbe'];
+    for (const fragment of setupTools) {
+      for (const tool of tools) {
+        expect(tool, `conductor should not hold the setup-phase tool '${fragment}': ${tool}`).not.toMatch(
+          new RegExp(`__${fragment}$`),
+        );
+      }
+    }
   });
 });
 

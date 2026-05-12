@@ -10,7 +10,8 @@ export interface AdvanceArtifactResult {
   errors?: string[];
   /** Absolute path to the rendered artifact.html (if the lesson declares one). */
   artifact_path?: string;
-  /** Absolute path to the sibling state JSON the page polls. */
+  /** Absolute path to the sibling state JSON. Same shape as the inlined state
+   * for downstream tooling / browsers that can fetch local files. */
   artifact_state_path?: string;
   /** True when the lesson has no `artifact` block and there was nothing to do. */
   noop?: boolean;
@@ -26,6 +27,30 @@ interface ArtifactStateFile {
 
 const DEFAULT_STATE_FILENAME = 'artifact-state.json';
 const RENDERED_ARTIFACT_FILENAME = 'artifact.html';
+
+/**
+ * Inject `<script>window.__ACC_STATE__ = {...};</script>` into the template
+ * right before the closing `</body>`. The template's own poller script reads
+ * `window.__ACC_STATE__` synchronously on load and applies section visibility
+ * before (or instead of) the `fetch` poller — so the page renders correctly
+ * even on `file://`, where most browsers block `fetch` of local JSON.
+ *
+ * If the template already has a marker `<!-- ACC_STATE -->`, replace it.
+ * Otherwise inject before `</body>`. If neither shape is present (degraded
+ * template), append at the end as a last resort.
+ */
+function injectStateIntoHtml(html: string, state: ArtifactStateFile): string {
+  const inlined = `<script>window.__ACC_STATE__ = ${JSON.stringify(state)};</script>`;
+  const markerRe = /<!--\s*ACC_STATE\s*-->/i;
+  if (markerRe.test(html)) {
+    return html.replace(markerRe, inlined);
+  }
+  const closingBodyRe = /<\/body\s*>/i;
+  if (closingBodyRe.test(html)) {
+    return html.replace(closingBodyRe, `${inlined}\n</body>`);
+  }
+  return `${html}\n${inlined}\n`;
+}
 
 export async function runAdvanceArtifact({
   projectRoot,
@@ -60,27 +85,13 @@ export async function runAdvanceArtifact({
     return { ok: true, noop: true };
   }
 
-  // Resolve the artifact destination. Prefer the workspace if one exists so
-  // the rendered HTML lives next to the learner's code.
   const dest = state.workspace_path ?? projectRoot;
   const stateFilename = lesson.artifact.state_filename ?? DEFAULT_STATE_FILENAME;
   const artifactPath = path.join(dest, RENDERED_ARTIFACT_FILENAME);
   const artifactStatePath = path.join(dest, stateFilename);
 
-  // Copy the template into place (idempotent — overwrite is fine, it's
-  // self-contained content). The browser tab the user opened once stays
-  // pointed at this path forever.
-  const templateAbs = path.join(info.lesson_dir, lesson.artifact.template);
-  try {
-    await fsPromises.mkdir(dest, { recursive: true });
-    await fsPromises.copyFile(templateAbs, artifactPath);
-  } catch (err) {
-    return {
-      ok: false,
-      errors: [`artifact-template-copy-failed: ${(err as Error).message}`],
-    };
-  }
-
+  // Build the state body once; we inline it into the HTML AND write it as a
+  // sibling JSON so hosted (http://) users can also use the optional poller.
   const revealed: string[] = [];
   const upTo = Math.min(state.section_cursor + 1, sections.sections.length);
   for (let i = 0; i < upTo; i++) {
@@ -94,7 +105,32 @@ export async function runAdvanceArtifact({
     updated_at: new Date().toISOString(),
   };
 
-  // Atomic write using the same tmp+fsync+rename pattern as state.ts.
+  // Read the template, inject inline state, write artifact.html.
+  const templateAbs = path.join(info.lesson_dir, lesson.artifact.template);
+  let template: string;
+  try {
+    template = await fsPromises.readFile(templateAbs, 'utf8');
+  } catch (err) {
+    return {
+      ok: false,
+      errors: [`artifact-template-read-failed: ${(err as Error).message}`],
+    };
+  }
+  const rendered = injectStateIntoHtml(template, stateBody);
+
+  try {
+    await fsPromises.mkdir(dest, { recursive: true });
+    await fsPromises.writeFile(artifactPath, rendered, { mode: 0o644 });
+  } catch (err) {
+    return {
+      ok: false,
+      errors: [`artifact-html-write-failed: ${(err as Error).message}`],
+    };
+  }
+
+  // Atomic write of the sibling JSON using the tmp+fsync+rename pattern.
+  // Polling is now optional (the inlined state is the source of truth for
+  // file://), but http-served use can still benefit from live updates.
   const bytes = JSON.stringify(stateBody, null, 2);
   const tmpPath = path.join(
     dest,

@@ -73,14 +73,31 @@
 
 <!-- Add more <section> blocks here, one per lesson section. -->
 
+<!-- ACC_STATE -->
+
 <script>
-  // ACC artifact poller. Re-reads ./artifact-state.json every 2 seconds and
-  // reveals sections whose id appears in `revealed[]`. The MCP tool
-  // `advanceArtifact` rewrites artifact-state.json atomically; this poller
-  // is what makes the page "evolve" without a server.
-  (async function poll() {
+  // Apply the inlined `window.__ACC_STATE__` if present (injected by
+  // advanceArtifact at write time). This is the load-bearing render path
+  // because browsers block `fetch` of local JSON when the page is opened
+  // via `file://`. The optional poller below re-reads the same JSON if
+  // it can — useful when the artifact is served over http://.
+  function applyAccState(s) {
+    if (!s) return;
+    const revealed = new Set(s.revealed || []);
+    for (const sec of document.querySelectorAll('section.acc-section')) {
+      const id = sec.getAttribute('data-section-id');
+      sec.setAttribute('data-visible', revealed.has(id) ? 'true' : 'false');
+    }
+    const cur = (typeof s.cursor === 'number') ? s.cursor + 1 : 0;
+    const total = s.total_sections ?? 0;
+    const mode = s.mode ?? '?';
     const progress = document.getElementById('acc-progress');
-    let lastUpdate = '';
+    if (progress) progress.textContent = 'Section ' + cur + ' of ' + total + ' · output mode: ' + mode;
+  }
+  applyAccState(window.__ACC_STATE__);
+
+  (async function poll() {
+    let lastUpdate = window.__ACC_STATE__?.updated_at ?? '';
     while (true) {
       try {
         const r = await fetch('./artifact-state.json?_=' + Date.now(), { cache: 'no-store' });
@@ -88,19 +105,13 @@
           const s = await r.json();
           if (s.updated_at !== lastUpdate) {
             lastUpdate = s.updated_at;
-            const revealed = new Set(s.revealed || []);
-            for (const sec of document.querySelectorAll('section.acc-section')) {
-              const id = sec.getAttribute('data-section-id');
-              sec.setAttribute('data-visible', revealed.has(id) ? 'true' : 'false');
-            }
-            const cur = (typeof s.cursor === 'number') ? s.cursor + 1 : 0;
-            const total = s.total_sections ?? 0;
-            const mode = s.mode ?? '?';
-            progress.textContent = `Section ${cur} of ${total} · output mode: ${mode}`;
+            applyAccState(s);
           }
         }
       } catch (e) {
-        /* swallow — file may be mid-rename */
+        /* swallow — fetch may be blocked on file://, and that's fine: the
+           inlined state has already set up the initial render. The learner
+           refreshes the page between sections to pick up new state. */
       }
       await new Promise((r) => setTimeout(r, 2000));
     }

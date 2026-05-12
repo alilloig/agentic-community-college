@@ -49,7 +49,16 @@ If `result.prerequisites` is absent or empty, skip this step entirely.
 
 ## 4. Output mode
 
-Render `result.outputModePrompt.message` and ask the user to pick `learning` or `explanatory`. Once chosen, call `setOutputMode({ projectRoot, style })`.
+**Always surface this choice with `AskUserQuestion`** — never accept it from inline conversation, never assume a default, never proceed past this step without an explicit user selection. The two output modes drive radically different pedagogy and the learner needs to make the call deliberately.
+
+Render `result.outputModePrompt.message` and then call `AskUserQuestion` with:
+- `header`: "Output mode"
+- `question`: "Which output mode do you want for this lesson?"
+- Two options, **`learning` first** (the recommended default):
+  - `"Learning — pace section-by-section, leave TODOs for me"` — description: *"The implementing agent works alongside you, leaving the load-bearing pieces of each section as TODOs for you to write. Slower, deeper. ~90 minutes for the deepbook market-stats lesson."*
+  - `"Explanatory — implement everything, narrate as we go"` — description: *"The implementing agent writes every section's code, with brief explanations between. You read along. ~30–45 minutes."*
+
+Translate the user's pick to the literal value `'learning'` or `'explanatory'` and call `setOutputMode({ projectRoot, style })`.
 
 If the result includes a `warnings` entry with `kind: 'output-style-mismatch'`, surface its message — it tells the user their Claude Code session output style doesn't match what they picked in ACC, and how to align them via `/output-style`.
 
