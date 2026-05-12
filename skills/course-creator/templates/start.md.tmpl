@@ -1,0 +1,9 @@
+# /{{ name }}:start
+
+Start a lesson in **{{ name }}**.
+
+{{ welcome_paragraph }}
+
+To begin, invoke ACC's `course-engine` skill (from the `agentic-community-college` plugin) with a course filter pinned to `{{ name }}` — that will list only this course's lessons, walk the learner through selection, run the picked lesson's prerequisite probes, collect output mode (learning vs explanatory) and personalization, and hand off to the `course-conductor` agent for the section loop.
+
+If `agentic-community-college` isn't enabled, the user needs to install it first (e.g. `claude plugins install agentic-community-college@<marketplace>`); this start command is a thin wrapper that depends on the framework.

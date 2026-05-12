@@ -34,9 +34,11 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 | Path | Role |
 |---|---|
 | `.claude-plugin/plugin.json` | Plugin manifest: name=`agentic-community-college`, commands/agents/skills/mcpServers registered. |
-| `commands/start.md` | `/agentic-community-college:start` → delegates to course-engine skill. |
+| `commands/create-course.md` | `/agentic-community-college:create-course` → loads `course-creator` skill. |
+| `commands/create-lesson.md` | `/agentic-community-college:create-lesson` → loads `lesson-creator` skill. |
+| `commands/list.md` | `/agentic-community-college:list` → read-only catalog browser; calls `start` MCP tool and renders, no state mutation. |
 | `agents/course-conductor.md` | Section-loop driver dispatched after course-engine sets up the session. |
-| `skills/course-engine/SKILL.md` | Entry-point skill: discovery → lesson selection → prerequisites → setOutputMode → setPersonalization → hand off to conductor. |
+| `skills/course-engine/SKILL.md` | Session-driver skill: discovery (optionally course-filtered) → lesson selection → prerequisites → setOutputMode → setPersonalization → hand off to conductor. Invoked by each course plugin's own `start` command, not directly by an ACC command. |
 | `skills/course-creator/SKILL.md` | Authoring skill that scaffolds a new **course plugin** from scratch (plugin.json + accContent + probes + README + CLAUDE.md + empty lessons/). |
 | `skills/course-creator/templates/` | `plugin.json.tmpl`, `README.md.tmpl`, `CLAUDE.md.tmpl`, `.gitignore.tmpl`. |
 | `skills/lesson-creator/SKILL.md` | Authoring skill that scaffolds a new lesson into an existing course plugin. Handles on-demand probe declaration when a lesson lists a prerequisite the course hasn't declared yet. |

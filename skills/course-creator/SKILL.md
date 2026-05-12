@@ -61,21 +61,22 @@ Render each probe back to the user before adding it; if they want to refine, ite
 
 Generate, in order:
 
-1. `<target>/.claude-plugin/plugin.json` — fill out `templates/plugin.json.tmpl` with the collected name, description, author, keywords, and the probes array. `accContent.lessons` is always `"./lessons/"`.
-2. `<target>/README.md` — fill out `templates/README.md.tmpl` with the plugin name + a paragraph explaining this is an ACC content plugin and how to enable it.
-3. `<target>/CLAUDE.md` — fill out `templates/CLAUDE.md.tmpl` with the working-notes shape every content plugin carries.
-4. `<target>/.gitignore` — fill out `templates/.gitignore.tmpl` (covers `node_modules/`, `.vite/`, `dist/`, `.acc/`, OS junk).
-5. `<target>/lessons/.gitkeep` — empty placeholder so the directory is tracked.
+1. `<target>/.claude-plugin/plugin.json` — fill out `templates/plugin.json.tmpl` with the collected name, description, author, keywords, and the probes array. The template hardcodes `"commands": ["./commands/start.md"]` and `accContent.lessons = "./lessons/"`.
+2. `<target>/commands/start.md` — fill out `templates/start.md.tmpl` with the plugin name and a one-paragraph **welcome** the user supplies (or a sensible default). This is the learner's entry point — `/<name>:start` — and it delegates to ACC's `course-engine` skill with a course filter pinned to this plugin.
+3. `<target>/README.md` — fill out `templates/README.md.tmpl` with the plugin name + a paragraph explaining this is an ACC content plugin and how to enable it.
+4. `<target>/CLAUDE.md` — fill out `templates/CLAUDE.md.tmpl` with the working-notes shape every content plugin carries.
+5. `<target>/.gitignore` — fill out `templates/.gitignore.tmpl` (covers `node_modules/`, `.vite/`, `dist/`, `.acc/`, OS junk).
+6. `<target>/lessons/.gitkeep` — empty placeholder so the directory is tracked.
 
-Use the lightweight `{{ key }}` substitutor (same shape as the lesson-creator templates) — no external template engine.
+Use the lightweight `{{ key }}` substitutor (same shape as the lesson-creator templates) — no external template engine. Substitution variables across the templates: `{{ name }}`, `{{ description }}`, `{{ description_short }}`, `{{ author }}`, `{{ keywords_json }}`, `{{ welcome_paragraph }}`.
 
 ## Step 5 — Verify + commit (optional)
 
 Tell the user the next steps:
 
-1. Enable the plugin in Claude Code (point at `<target>` from `~/.claude/plugins/` or the marketplace flow).
-2. Re-run `/agentic-community-college:start` — the new course should appear under `result.courses` and its lesson catalog (empty for now).
-3. Run `lesson-creator` against this course to author the first lesson.
-4. `git add -A && git commit -m "chore: scaffold acc-<domain>-course"` inside the target dir.
+1. Push the new course's git repo to a remote and add it to a marketplace (or install it locally), then `claude plugins install <name>@<marketplace>` so ACC's discovery picks it up.
+2. Run `/agentic-community-college:list` — the new course should appear under "Discovered courses" with an empty lesson catalog.
+3. Run `/agentic-community-college:create-lesson` against this course to author the first lesson.
+4. `git add -A && git commit -m "chore: scaffold <name>"` inside the target dir.
 
 Do **not** run git commands from this skill — leave it to the user so they can audit the diff first. Do not push to a remote unless the user asks.

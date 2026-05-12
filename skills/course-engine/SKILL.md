@@ -1,21 +1,23 @@
 ---
 name: course-engine
-description: ACC entry-point skill — invoked by /agentic-community-college:start. Renders the discovered courses and their lessons, lets the learner pick one, walks them through output-mode selection and personalization via MCP tools, then hands off to the course-conductor agent for the section loop.
+description: ACC's session-driver skill — invoked by each course plugin's start command (e.g. /acc-deepbook-course:start). Renders the lesson catalog (optionally filtered to a single course), walks the learner through lesson selection, runs the picked lesson's prerequisite probes, collects output mode + personalization via MCP tools, then hands off to the course-conductor agent for the section loop. Use when the invoker says something like "run the ACC course engine", "start an ACC lesson", "drive a lesson from <course>".
 ---
 
 # Course Engine Skill
 
-When the user invokes `/agentic-community-college:start`, follow these steps.
+When invoked, follow these steps. Each step's MCP tool gates on the learning output style being enabled (`outputStyleOk`); if it isn't, the tools refuse to mutate state.
 
 ## 1. Probe the session
 
 Call the `start` MCP tool with the user's `projectRoot` (the working directory).
 
+**If the invoking command supplied a course filter** (e.g. a per-course start.md saying "filter to `acc-deepbook-course`"), apply it now: drop any `result.lessons` entry whose `course_name` doesn't start with the named course's plugin name. Without a filter, render every discovered course.
+
 Render the result:
 
 - **Output style**: If `outputStyleOk` is `true`, briefly confirm the learning output style plugin is active. If `false`, advise the user to enable `learning-output-style@claude-plugins-official` for the best experience (advisory — ACC still runs without it, but the tool gate stays closed).
-- **Discovered courses**: List `result.courses` (plugin keys). If empty, tell the user no course plugins are enabled and stop — there is nothing to learn until they install one.
-- **Lesson catalog**: List each `result.lessons` entry with its `namespaced_slug`, `title`, and `summary`, grouped by `course_name`. If the catalog is empty (courses present but no lessons), surface the warning array and stop.
+- **Discovered courses**: List the (filtered) `result.courses` (plugin keys). If empty after filtering, tell the user the named course isn't enabled and stop.
+- **Lesson catalog**: List each (filtered) `result.lessons` entry with its `namespaced_slug`, `title`, and `summary`, grouped by `course_name`. If empty, surface the warning array and stop.
 - **Warnings**: If `result.warnings` is non-empty, render each warning's `kind` + `message` so the user can diagnose configuration issues.
 
 `start` itself never runs preflight probes — it returns `preflight: { skipped: true, reason: 'cycle-1' }` and leaves `state: null`. Probes are run later, in step 3, only when the picked lesson declares prerequisites. Don't try to enumerate every probe up front.
