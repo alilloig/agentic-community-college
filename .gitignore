@@ -1,8 +1,15 @@
 node_modules/
 .vitest-cache/
-dist/
 .DS_Store
 *.log
+
+# Ship the built MCP server with the repo — Claude Code's marketplace install
+# pulls source but doesn't run pnpm build, so the bundled artifact has to live
+# in git. Other dist/ directories stay ignored. Sourcemaps stay ignored too —
+# only the executable bundle needs to be shipped.
+dist/
+!mcp/server/dist/
+!mcp/server/dist/index.js
 
 # Personal session memory (not part of the project artifact)
 .remember/
