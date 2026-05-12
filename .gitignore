@@ -5,10 +5,14 @@ node_modules/
 
 # Ship the built MCP server with the repo — Claude Code's marketplace install
 # pulls source but doesn't run pnpm build, so the bundled artifact has to live
-# in git. Other dist/ directories stay ignored. Sourcemaps stay ignored too —
-# only the executable bundle needs to be shipped.
-dist/
-!mcp/server/dist/
+# in git. Sourcemaps stay ignored — only the executable bundle ships.
+#
+# Important: gitignore can't re-include a file under a directory that was
+# excluded by a directory rule. So we exclude the *contents* of dist/ (with
+# a path-anchored `dist/*` glob), not the dir itself, then re-include the
+# one file we want. That way the dir entry is implicitly tracked via its
+# child + sourcemaps and any other artifacts stay out.
+**/dist/*
 !mcp/server/dist/index.js
 
 # Personal session memory (not part of the project artifact)
