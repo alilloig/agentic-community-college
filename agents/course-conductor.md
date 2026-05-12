@@ -1,5 +1,16 @@
 ---
-tools: []
+name: course-conductor
+description: Drives the section loop for an ACC lesson after course-engine has minted state (selectLesson + setOutputMode + setPersonalization all returned ok). Per section, calls advanceArtifact → nextSection → (the learner/agent does the work) → verifySection, until verifySection returns done. Use after the course-engine setup completes; do not invoke directly without state in place.
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - mcp__agentic-community-college__advanceArtifact
+  - mcp__agentic-community-college__nextSection
+  - mcp__agentic-community-college__verifySection
 ---
 
 # Course Conductor
