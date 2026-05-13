@@ -41,11 +41,11 @@ ACC's authoring skills and runtime conductor delegate several artifact-related t
 | `for-dummies` | `lesson-creator` Step 6 (description.md draft from seeded reference-app) | Author writes description.md from scratch |
 | `move-call-chains` | `lesson-creator` Step 6 (Move-lesson SVG diagrams) | Author hand-draws Move call-chain SVG |
 
-**Probe identification.** The course-creator template pre-seeds a `toolkit-installed` probe (`kind: claude-plugin-enabled`, `plugin_key: "toolkit@contract-hero"`) in every new course's `plugin.json`. Lessons can opt-in to the prereq by adding `"toolkit-installed"` to their `prerequisites` array; the default is to leave prerequisites empty and let toolkit absence degrade gracefully (the conductor's hand-offs become install hints instead of skill invocations).
+**Probe identification.** The course-creator template pre-seeds a `toolkit-installed` probe (`kind: claude-plugin-enabled`, `plugin_key: "toolkit@contract-hero"`) in every new course's `plugin.json`. By default, lessons leave their `prerequisites` empty and let toolkit absence degrade gracefully — conductor hand-offs become install hints instead of skill invocations. Lessons that drive the learner to invoke a toolkit skill mid-section should opt-in by adding `"toolkit-installed"` to their `prerequisites`.
 
-**Authoring-time vs runtime.** The `lesson-creator` skill's Step 0 hard-checks for toolkit before authoring proceeds — authors actually need the skills to follow the recommended Step 6 flow. The conductor's offers are soft — learners with toolkit get publish-html / scratch-html-artifact affordances; learners without get the same lesson minus those affordances.
+**Authoring-time vs runtime.** `lesson-creator` Step 0 hard-checks for toolkit (authors need the skills to follow the recommended Step 6 flow). The conductor's offers are soft — toolkit-enabled learners get `publish-html` / scratch `html-artifact` affordances; others get the same lesson without them.
 
-**Why route through a plugin instead of `filesystem-exists`?** `claude-plugin-enabled` checks a single line in `~/.claude/settings.json` and works whether the skills are bundled in a plugin's `skills/` dir, copied to `~/.claude/skills/`, or installed any other way the plugin's manifest declares. `filesystem-exists` against `~/.claude/skills/<name>/SKILL.md` would miss the plugin-bundled installation path and force per-skill probes (four declarations instead of one).
+**Why `claude-plugin-enabled` and not `filesystem-exists`?** One check in `~/.claude/settings.json` works regardless of how the plugin installs its skills (bundled in `skills/`, copied to `~/.claude/skills/`, or any other manifest-declared path). A `filesystem-exists` probe against `~/.claude/skills/<name>/SKILL.md` would miss the bundled path and force four separate probes instead of one.
 
 ## Component Map
 

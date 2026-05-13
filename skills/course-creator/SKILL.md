@@ -28,11 +28,11 @@ Collect:
 
 ### Pre-seeded probe
 
-The `plugin.json.tmpl` template ships with one probe already declared: **`toolkit-installed`** (kind: `claude-plugin-enabled`, key: `toolkit@contract-hero`). It's there because ACC's runtime conductor and the `lesson-creator` skill both delegate to skills bundled by that plugin (`publish-html` for the post-lesson hand-off, `html-artifact` for scratch explainers, `for-dummies` and `move-call-chains` for authoring-time SVG generation).
+The template ships with one probe already declared: **`toolkit-installed`** (kind: `claude-plugin-enabled`, key: `toolkit@contract-hero`). ACC's conductor and `lesson-creator` delegate to skills bundled by that plugin (`publish-html`, `html-artifact`, `for-dummies`, `move-call-chains`).
 
-Most lessons leave `prerequisites: []` and let toolkit absence degrade gracefully (the conductor's offers become hints instead of executions). A lesson that explicitly drives the learner to invoke a toolkit skill mid-section should add `"toolkit-installed"` to its `prerequisites` so the lesson can't start without it.
+Most lessons should leave `prerequisites: []` — toolkit absence degrades gracefully (the conductor's offers become install hints). Only add `"toolkit-installed"` to a lesson's `prerequisites` when section bodies explicitly drive the learner to invoke a toolkit skill mid-lesson.
 
-If the course author objects to the dependency, they can delete the seeded probe from `plugin.json` — but advise against it: the conductor's affordances assume it's declared somewhere accessible.
+The author can delete the seeded probe if they object to the dependency, but advise against it — the conductor's affordances assume it's declared somewhere accessible.
 
 ### Adding more probes
 

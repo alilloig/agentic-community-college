@@ -5,30 +5,28 @@ import { fileURLToPath } from 'node:url';
 import { validateCourseProbes } from '../mcp/server/src/schemas/courseProbes.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, '..');
+const tmplPath = path.resolve(
+  __dirname,
+  '..',
+  'skills/course-creator/templates/plugin.json.tmpl',
+);
 
-function substitute(raw: string): string {
-  return raw
-    .replace(/\{\{ name \}\}/g, 'acc-test-course')
-    .replace(/\{\{ description \}\}/g, 'test')
-    .replace(/\{\{ author \}\}/g, 'Test')
-    .replace(/\{\{ keywords_json \}\}/g, '"test"');
-}
+const rendered = fs
+  .readFileSync(tmplPath, 'utf8')
+  .replace(/\{\{ name \}\}/g, 'acc-test-course')
+  .replace(/\{\{ description \}\}/g, 'test')
+  .replace(/\{\{ author \}\}/g, 'Test')
+  .replace(/\{\{ keywords_json \}\}/g, '"test"');
 
 describe('course-creator plugin.json.tmpl — toolkit-installed probe seed', () => {
-  const tmplPath = path.join(
-    repoRoot,
-    'skills/course-creator/templates/plugin.json.tmpl',
-  );
+  const parsed = JSON.parse(rendered);
 
   it('substitutes + parses to valid JSON with the seeded probe', () => {
-    const parsed = JSON.parse(substitute(fs.readFileSync(tmplPath, 'utf8')));
     expect(parsed.accContent.probes).toHaveLength(1);
     expect(parsed.accContent.probes[0].id).toBe('toolkit-installed');
   });
 
   it('passes the courseProbes schema validator', () => {
-    const parsed = JSON.parse(substitute(fs.readFileSync(tmplPath, 'utf8')));
     const result = validateCourseProbes(parsed.accContent.probes);
     expect(result.ok).toBe(true);
     if (result.ok) {

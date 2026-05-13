@@ -20,12 +20,12 @@ Authoring a lesson the recommended way (Step 6) delegates several artifact-autho
 | `move-call-chains` | Step 6 (Move lessons only) | Generates per-user-story inline SVG call-chain diagrams |
 | `publish-html` | Lesson handoff (offered by the conductor after the learner finishes) | Turns the rendered `artifact.html` into a shareable URL |
 
-Check whether `toolkit@contract-hero` is enabled by reading `~/.claude/settings.json` and inspecting `enabledPlugins["toolkit@contract-hero"]`:
+Read `~/.claude/settings.json` and check `enabledPlugins["toolkit@contract-hero"]`:
 
 - If `true` → proceed to Step 1.
-- If missing or `false` → tell the user: *"This skill's recommended authoring flow delegates to skills bundled by `toolkit@contract-hero`. Install + enable it (or confirm you want to author the lesson by hand without delegation) before proceeding."* Then use `AskUserQuestion` with two options: `"Install toolkit@contract-hero and re-run"` (recommended) or `"Proceed without — I'll hand-author every artifact"`.
+- If missing or `false` → use `AskUserQuestion` with: *"The recommended authoring flow delegates to skills bundled by `toolkit@contract-hero`. Install it, or hand-author every artifact?"* Options: `"Install toolkit@contract-hero and re-run"` (recommended) or `"Proceed without — I'll hand-author every artifact"`.
 
-If the user picks "Proceed without", continue but be explicit in Step 6 that you are *not* invoking the delegated skills and the lesson template will be hand-drawn. Do not silently skip this check — the lesson's downstream quality depends on knowing whether delegation is available.
+If the user picks "Proceed without", continue but state in Step 6 that the delegated skills are not being invoked. Never silently skip this check.
 
 ## Step 1 — Target selection
 
@@ -52,7 +52,7 @@ Ask the user (using AskUserQuestion where natural) for:
   3. If it doesn't, **offer to declare it inline now**. Run the same probe-kind wizard `course-creator` uses (kind, message_pass, message_fail, params, optional remediation). Append the new decl to the course's `accContent.probes` array, write the manifest back atomically, then add the id to the lesson's `prerequisites`.
   4. Refuse to add a prerequisite id without declaring it — silent missing-probe references would break the conductor at runtime.
 
-  The course-creator template pre-seeds a `toolkit-installed` probe (claude-plugin-enabled against `toolkit@contract-hero`) so every course ships with it available. Most lessons should **not** add it to their `prerequisites` array — toolkit dependencies are soft framework-level affordances (the conductor's `publish-html` hand-off, scratch `html-artifact` suggestions) that degrade gracefully when toolkit is absent. Add `"toolkit-installed"` to a lesson's prerequisites *only* when the section bodies themselves instruct the learner to invoke one of the toolkit skills mid-lesson.
+  Every course ships with a pre-seeded `toolkit-installed` probe. Most lessons should **not** add it to their `prerequisites` — toolkit affordances (conductor's `publish-html` hand-off, scratch `html-artifact` suggestions) degrade gracefully when absent. Add it *only* when a section body instructs the learner to invoke a toolkit skill mid-lesson.
 - **Chapter breakdown**: ask whether to (a) **auto-derive** sections from the reference-app's natural milestones (you read the code and propose 5–10 sections), or (b) **manual** (the user names the sections).
 
 ## Step 3 — Seed transform
