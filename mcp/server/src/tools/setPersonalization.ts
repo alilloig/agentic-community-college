@@ -1,11 +1,9 @@
-import { loadState, saveState } from '../state.js';
+import { saveState } from '../state.js';
 import {
   validatePersonalizationValues,
   type PersonalizationOptionDecl,
 } from '../personalization.js';
-import { probeOutputStyle } from '../outputStyle.js';
-import { discoverCourses } from '../pluginsRoot.js';
-import { loadLessonBySlug } from '../registry.js';
+import { runSetupGate } from './setupGate.js';
 
 export interface SetPersonalizationResult {
   ok: boolean;
@@ -19,32 +17,13 @@ export async function runSetPersonalization({
   projectRoot: string;
   values: Record<string, unknown>;
 }): Promise<SetPersonalizationResult> {
-  // Output-style gate before any state load.
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
+  const gate = await runSetupGate(projectRoot);
+  if (!gate.ok) {
+    return { ok: false, errors: gate.errors };
   }
-
-  const stateResult = await loadState(projectRoot);
-  if (stateResult.kind === 'corrupt') {
-    return { ok: false, errors: [`State corrupt: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'schema-mismatch') {
-    return { ok: false, errors: [`State schema mismatch: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'absent' || !stateResult.state.selected_lesson) {
-    return { ok: false, errors: ['No lesson selected. Call selectLesson first.'] };
-  }
-
-  const state = stateResult.state;
+  const { state, loaded } = gate;
+  const { lesson } = loaded;
   const namespacedSlug = state.selected_lesson;
-
-  const discovery = discoverCourses();
-  const loaded = loadLessonBySlug(discovery.courses, namespacedSlug);
-  if (!loaded.ok) {
-    return { ok: false, errors: [loaded.error] };
-  }
-  const lesson = loaded.lesson;
 
   // Build declared options from the lesson's personalization block.
   const declaredOptions: PersonalizationOptionDecl[] = [];
@@ -101,8 +80,7 @@ export async function runSetPersonalization({
   try {
     await saveState(projectRoot, updated);
   } catch (err) {
-    const e = err as Error;
-    return { ok: false, errors: [`state-save-failed: ${e.message}`] };
+    return { ok: false, errors: [`state-save-failed: ${(err as Error).message}`] };
   }
 
   return { ok: true };

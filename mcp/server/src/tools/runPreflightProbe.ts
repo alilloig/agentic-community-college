@@ -19,15 +19,32 @@ export interface RunPreflightProbeResult {
   logs?: string[];
   /** Plugin key of the course that owned the probe (when resolved). */
   ownerCourse?: string;
+  /** Names of other course plugins that also declared this probe id, when
+   * more than one was found. The first-discovered course wins; the others
+   * are shadowed. This signal lets the conductor and tests catch silent
+   * cross-course collisions. */
+  collidingCourses?: string[];
 }
 
-function findProbe(probeId: string): { decl: CourseProbeDecl; owner: string } | undefined {
+function findProbe(probeId: string): {
+  decl: CourseProbeDecl;
+  owner: string;
+  collidingCourses?: string[];
+} | undefined {
   const { courses } = discoverCourses();
+  const hits: Array<{ decl: CourseProbeDecl; owner: string }> = [];
   for (const c of courses) {
     const decl = c.probes.find((p) => p.id === probeId);
-    if (decl) return { decl, owner: c.name };
+    if (decl) hits.push({ decl, owner: c.name });
   }
-  return undefined;
+  if (hits.length === 0) return undefined;
+  const winner = hits[0];
+  if (hits.length === 1) return winner;
+  return {
+    decl: winner.decl,
+    owner: winner.owner,
+    collidingCourses: hits.slice(1).map((h) => h.owner),
+  };
 }
 
 async function runRemediation(
@@ -108,6 +125,7 @@ export async function runPreflightProbe(
       ownerCourse: hit.owner,
     };
     if (probeResult.action) out.action = probeResult.action;
+    if (hit.collidingCourses) out.collidingCourses = hit.collidingCourses;
     return out;
   }
 
@@ -144,6 +162,7 @@ export async function runPreflightProbe(
     ownerCourse: hit.owner,
     logs,
   };
+  if (hit.collidingCourses) out.collidingCourses = hit.collidingCourses;
   if (after.action) out.action = after.action;
   return out;
 }

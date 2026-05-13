@@ -1,9 +1,7 @@
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
-import { loadState } from '../state.js';
-import { probeOutputStyle } from '../outputStyle.js';
-import { discoverCourses } from '../pluginsRoot.js';
-import { loadLessonBySlug } from '../registry.js';
+import { atomicWriteFile } from '../atomicWrite.js';
+import { runSetupGate } from './setupGate.js';
 
 export interface AdvanceArtifactResult {
   ok: boolean;
@@ -29,27 +27,34 @@ const DEFAULT_STATE_FILENAME = 'artifact-state.json';
 const RENDERED_ARTIFACT_FILENAME = 'artifact.html';
 
 /**
- * Inject `<script>window.__ACC_STATE__ = {...};</script>` into the template
- * right before the closing `</body>`. The template's own poller script reads
- * `window.__ACC_STATE__` synchronously on load and applies section visibility
- * before (or instead of) the `fetch` poller — so the page renders correctly
- * even on `file://`, where most browsers block `fetch` of local JSON.
+ * Inject `<script>window.__ACC_STATE__ = {...};</script>` into the template.
+ * The template's own poller script reads `window.__ACC_STATE__`
+ * synchronously on load and applies section visibility before (or instead
+ * of) the `fetch` poller — so the page renders correctly even on `file://`,
+ * where most browsers block `fetch` of local JSON.
  *
- * If the template already has a marker `<!-- ACC_STATE -->`, replace it.
- * Otherwise inject before `</body>`. If neither shape is present (degraded
- * template), append at the end as a last resort.
+ * Anchor preference: an explicit `<!-- ACC_STATE -->` marker, otherwise the
+ * closing `</body>` tag. A template lacking both is treated as malformed —
+ * silently appending the script to a non-HTML file would let the artifact
+ * render wrong without any signal back to the conductor, which is worse
+ * than failing loudly.
  */
-function injectStateIntoHtml(html: string, state: ArtifactStateFile): string {
+function injectStateIntoHtml(html: string, state: ArtifactStateFile):
+  | { ok: true; html: string }
+  | { ok: false; error: string } {
   const inlined = `<script>window.__ACC_STATE__ = ${JSON.stringify(state)};</script>`;
   const markerRe = /<!--\s*ACC_STATE\s*-->/i;
   if (markerRe.test(html)) {
-    return html.replace(markerRe, inlined);
+    return { ok: true, html: html.replace(markerRe, inlined) };
   }
   const closingBodyRe = /<\/body\s*>/i;
   if (closingBodyRe.test(html)) {
-    return html.replace(closingBodyRe, `${inlined}\n</body>`);
+    return { ok: true, html: html.replace(closingBodyRe, `${inlined}\n</body>`) };
   }
-  return `${html}\n${inlined}\n`;
+  return {
+    ok: false,
+    error: 'artifact-template-malformed: template has neither an <!-- ACC_STATE --> marker nor a </body> tag; cannot inject state',
+  };
 }
 
 export async function runAdvanceArtifact({
@@ -57,28 +62,11 @@ export async function runAdvanceArtifact({
 }: {
   projectRoot: string;
 }): Promise<AdvanceArtifactResult> {
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
+  const gate = await runSetupGate(projectRoot);
+  if (!gate.ok) {
+    return { ok: false, errors: gate.errors };
   }
-
-  const stateResult = await loadState(projectRoot);
-  if (stateResult.kind === 'corrupt') {
-    return { ok: false, errors: [`State corrupt: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'schema-mismatch') {
-    return { ok: false, errors: [`State schema mismatch: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'absent' || !stateResult.state.selected_lesson) {
-    return { ok: false, errors: ['No lesson selected. Call selectLesson first.'] };
-  }
-
-  const state = stateResult.state;
-  const discovery = discoverCourses();
-  const loaded = loadLessonBySlug(discovery.courses, state.selected_lesson);
-  if (!loaded.ok) {
-    return { ok: false, errors: [loaded.error] };
-  }
+  const { state, loaded } = gate;
   const { lesson, sections, info } = loaded;
 
   if (!lesson.artifact) {
@@ -116,11 +104,21 @@ export async function runAdvanceArtifact({
       errors: [`artifact-template-read-failed: ${(err as Error).message}`],
     };
   }
-  const rendered = injectStateIntoHtml(template, stateBody);
+  const injected = injectStateIntoHtml(template, stateBody);
+  if (!injected.ok) {
+    return { ok: false, errors: [injected.error] };
+  }
 
   try {
     await fsPromises.mkdir(dest, { recursive: true });
-    await fsPromises.writeFile(artifactPath, rendered, { mode: 0o644 });
+    // Atomic write so a refreshing browser tab never sees a torn HTML file
+    // mid-rewrite. Mode 0o644 because the artifact must be readable by the
+    // browser process (which on macOS often runs under the same user but
+    // hits stricter permission checks via sandboxing).
+    await atomicWriteFile(artifactPath, injected.html, {
+      mode: 0o644,
+      tmpPrefix: '.artifact.tmp',
+    });
   } catch (err) {
     return {
       ok: false,
@@ -128,22 +126,21 @@ export async function runAdvanceArtifact({
     };
   }
 
-  // Atomic write of the sibling JSON using the tmp+fsync+rename pattern.
-  // Polling is now optional (the inlined state is the source of truth for
-  // file://), but http-served use can still benefit from live updates.
-  const bytes = JSON.stringify(stateBody, null, 2);
-  const tmpPath = path.join(
-    dest,
-    `.artifact-state.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
-  );
-  await fsPromises.writeFile(tmpPath, bytes, { flag: 'wx', mode: 0o600 });
-  const handle = await fsPromises.open(tmpPath, 'r+');
+  // Sibling JSON — same atomic pattern. Polling is optional now (the inlined
+  // state is the source of truth for file://) but the JSON is still useful
+  // when the artifact is served over http://.
   try {
-    await handle.sync();
-  } finally {
-    await handle.close();
+    await atomicWriteFile(
+      artifactStatePath,
+      JSON.stringify(stateBody, null, 2),
+      { mode: 0o600, tmpPrefix: '.artifact-state.tmp' },
+    );
+  } catch (err) {
+    return {
+      ok: false,
+      errors: [`artifact-state-write-failed: ${(err as Error).message}`],
+    };
   }
-  await fsPromises.rename(tmpPath, artifactStatePath);
 
   return {
     ok: true,

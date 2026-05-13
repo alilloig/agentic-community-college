@@ -1,10 +1,7 @@
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
-import { loadState } from '../state.js';
-import { probeOutputStyle } from '../outputStyle.js';
-import { discoverCourses } from '../pluginsRoot.js';
-import { loadLessonBySlug } from '../registry.js';
 import { substitutePromptOnly } from '../personalization.js';
+import { runSetupGate } from './setupGate.js';
 
 export interface NextSectionResult {
   ok: boolean;
@@ -36,28 +33,11 @@ export async function runNextSection({
 }: {
   projectRoot: string;
 }): Promise<NextSectionResult> {
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
+  const gate = await runSetupGate(projectRoot);
+  if (!gate.ok) {
+    return { ok: false, errors: gate.errors };
   }
-
-  const stateResult = await loadState(projectRoot);
-  if (stateResult.kind === 'corrupt') {
-    return { ok: false, errors: [`State corrupt: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'schema-mismatch') {
-    return { ok: false, errors: [`State schema mismatch: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'absent' || !stateResult.state.selected_lesson) {
-    return { ok: false, errors: ['No lesson selected. Call selectLesson first.'] };
-  }
-
-  const state = stateResult.state;
-  const discovery = discoverCourses();
-  const loaded = loadLessonBySlug(discovery.courses, state.selected_lesson);
-  if (!loaded.ok) {
-    return { ok: false, errors: [loaded.error] };
-  }
+  const { state, loaded } = gate;
   const { sections, info } = loaded;
 
   const total = sections.sections.length;

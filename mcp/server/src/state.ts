@@ -1,6 +1,7 @@
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
+import { atomicWriteFile } from './atomicWrite.js';
 import { validateState } from './schemas/state.js';
 import type { State } from './schemas/state.js';
 
@@ -147,26 +148,9 @@ async function archiveCorruptFile(
 export async function saveState(projectRoot: string, state: State): Promise<void> {
   const stateDir = path.join(projectRoot, STATE_DIR);
   const statePath = path.join(stateDir, STATE_FILE);
-
-  // Create directory if it doesn't exist (saveState is permitted to mkdir)
   await fsPromises.mkdir(stateDir, { recursive: true });
-
-  const bytes = JSON.stringify(state, null, 2);
-  const tmpPath = path.join(stateDir, `state.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
-
-  // A19: use wx flag (refuse if file exists) and mode 0o600
-  await fsPromises.writeFile(tmpPath, bytes, { flag: 'wx', mode: 0o600 });
-
-  // A18: durably flush via the FileHandle returned by fsPromises.open.
-  // M001 carry-forward (cycle 4): handle.sync() + handle.close() only;
-  // the legacy fs-level sync call is removed.
-  const handle = await fsPromises.open(tmpPath, 'r+');
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-
-  // Atomic rename tmp → canonical
-  await fsPromises.rename(tmpPath, statePath);
+  await atomicWriteFile(statePath, JSON.stringify(state, null, 2), {
+    mode: 0o600,
+    tmpPrefix: 'state.tmp',
+  });
 }

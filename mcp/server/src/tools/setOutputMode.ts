@@ -1,6 +1,7 @@
-import { loadState, saveState } from '../state.js';
+import { saveState } from '../state.js';
 import type { OutputStyleKind } from '../schemas/state.js';
-import { probeOutputStyle, readActiveOutputStyle } from '../outputStyle.js';
+import { readActiveOutputStyle } from '../outputStyle.js';
+import { runSetupGate } from './setupGate.js';
 
 export interface SetOutputModeResult {
   ok: boolean;
@@ -25,27 +26,16 @@ export async function runSetOutputMode({
   projectRoot: string;
   style: OutputStyleKind;
 }): Promise<SetOutputModeResult> {
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
-  }
-
-  const stateResult = await loadState(projectRoot);
-  if (stateResult.kind === 'corrupt') {
-    return { ok: false, errors: [`State corrupt: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'schema-mismatch') {
-    return { ok: false, errors: [`State schema mismatch: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'absent' || !stateResult.state.selected_lesson) {
-    return { ok: false, errors: ['No lesson selected. Call selectLesson first.'] };
+  const gate = await runSetupGate(projectRoot);
+  if (!gate.ok) {
+    return { ok: false, errors: gate.errors };
   }
 
   if (style !== 'learning' && style !== 'explanatory') {
     return { ok: false, errors: [`Invalid output style: ${style}`] };
   }
 
-  const updated = { ...stateResult.state, selected_output_style: style };
+  const updated = { ...gate.state, selected_output_style: style };
   try {
     await saveState(projectRoot, updated);
   } catch (err) {

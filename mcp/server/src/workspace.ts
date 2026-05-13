@@ -24,6 +24,7 @@ import { spawn as defaultSpawn, type SpawnOptions } from 'node:child_process';
 import type { LessonData } from './schemas/lesson.js';
 import { validateWorkspaceMeta, WORKSPACE_META_SCHEMA_VERSION } from './schemas/workspace.js';
 import type { WorkspaceMeta } from './schemas/workspace.js';
+import { atomicWriteFile } from './atomicWrite.js';
 
 export type { WorkspaceMeta };
 
@@ -245,31 +246,30 @@ async function tryLoadWorkspaceMeta(workspacePath: string): Promise<WorkspaceMet
 export async function saveWorkspaceMeta(workspacePath: string, meta: WorkspaceMeta): Promise<void> {
   await fsPromises.mkdir(workspacePath, { recursive: true });
   const metaPath = path.join(workspacePath, WORKSPACE_META_FILE);
-  const tmpPath = path.join(
-    workspacePath,
-    `.course-state.tmp-${Date.now()}-${Math.random().toString(36).slice(2)}.json`,
-  );
-  const bytes = JSON.stringify(meta, null, 2);
-  await fsPromises.writeFile(tmpPath, bytes, { flag: 'wx', mode: 0o600 });
-  const handle = await fsPromises.open(tmpPath, 'r+');
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  await fsPromises.rename(tmpPath, metaPath);
+  await atomicWriteFile(metaPath, JSON.stringify(meta, null, 2), {
+    mode: 0o600,
+    tmpPrefix: '.course-state.tmp',
+  });
 }
 
 // ---------------------------------------------------------------------------
 // Filesystem helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * True iff the path exists. ENOENT means false; any other error (EACCES,
+ * ELOOP, ENAMETOOLONG…) re-throws — letting the caller distinguish
+ * "definitely absent" from "couldn't tell". Conflating the two causes
+ * `prepareWorkspace` to try to mkdir over an unreadable existing workspace
+ * and produce confusing EEXIST/EACCES failures downstream.
+ */
 async function pathExists(p: string): Promise<boolean> {
   try {
     await fsPromises.stat(p);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw err;
   }
 }
 

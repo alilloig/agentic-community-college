@@ -1,8 +1,6 @@
-import { loadState, saveState } from '../state.js';
-import { probeOutputStyle } from '../outputStyle.js';
-import { discoverCourses } from '../pluginsRoot.js';
-import { loadLessonBySlug } from '../registry.js';
+import { saveState } from '../state.js';
 import { runVerification, type VerifySpawnFn } from '../verify.js';
+import { runSetupGate } from './setupGate.js';
 
 export interface VerifySectionResult {
   ok: boolean;
@@ -29,32 +27,30 @@ export async function runVerifySection({
   /** Test seam; production leaves it undefined and we fall back to node:child_process. */
   spawn?: VerifySpawnFn;
 }): Promise<VerifySectionResult> {
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
+  const gate = await runSetupGate(projectRoot);
+  if (!gate.ok) {
+    return { ok: false, errors: gate.errors };
   }
-
-  const stateResult = await loadState(projectRoot);
-  if (stateResult.kind === 'corrupt') {
-    return { ok: false, errors: [`State corrupt: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'schema-mismatch') {
-    return { ok: false, errors: [`State schema mismatch: ${stateResult.message}`] };
-  }
-  if (stateResult.kind === 'absent' || !stateResult.state.selected_lesson) {
-    return { ok: false, errors: ['No lesson selected. Call selectLesson first.'] };
-  }
-
-  const state = stateResult.state;
-  const discovery = discoverCourses();
-  const loaded = loadLessonBySlug(discovery.courses, state.selected_lesson);
-  if (!loaded.ok) {
-    return { ok: false, errors: [loaded.error] };
-  }
+  const { state, loaded } = gate;
   const { sections, lesson } = loaded;
 
   const total = sections.sections.length;
   const cursor = state.section_cursor;
+  // Defensive: the conductor is meant to stop calling verifySection after
+  // nextSection reports `done: true`, but a re-entrant call (or a stale
+  // state where `section_cursor` has somehow drifted past `total`) must not
+  // re-run final_verification or advance the cursor further — that would
+  // produce a permanently corrupted state.
+  if (cursor >= total) {
+    return {
+      ok: true,
+      done: true,
+      final: true,
+      pass: false,
+      section_cursor: cursor,
+      output: 'Lesson already complete; section_cursor is past the last section.',
+    };
+  }
   const isFinal = cursor >= total - 1;
 
   // Choose verification: the current section's, or final_verification if
@@ -75,12 +71,8 @@ export async function runVerifySection({
   const v = await runVerification(fullAdapter, verifyCwd, verifyOpts);
 
   // Advance cursor on pass.
-  let newCursor = cursor;
-  let advanced = false;
-  if (v.pass) {
-    newCursor = cursor + 1;
-    advanced = newCursor !== cursor;
-  }
+  const newCursor = v.pass ? cursor + 1 : cursor;
+  const advanced = v.pass;
 
   const updated = {
     ...state,
