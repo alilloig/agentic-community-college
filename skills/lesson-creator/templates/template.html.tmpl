@@ -2,20 +2,21 @@
 <!--
   ACC lesson artifact — companion HTML to the lesson's section sequence.
 
-  This template inherits the family aesthetic defined by the `html-artifact`
-  skill at ~/.claude/skills/html-artifact/references/html-conventions.md
-  (system-font stack, conservative palette, inline SVG diagrams, single
-  inline <style> block, no external assets). Load that file before editing
-  any per-lesson copy of this template so the lesson reads as part of the
-  same family as other ACC artifacts.
+  This template inherits the family aesthetic defined by the html-artifact
+  skill's references/html-conventions.md file (system-font stack,
+  conservative palette, inline SVG diagrams, single inline style block,
+  no external assets). Load that file before editing any per-lesson copy
+  of this template so the lesson reads as part of the same family as
+  other ACC artifacts.
 
   Three pieces are ACC-specific and load-bearing — do not remove or rename:
-    1. The <!-- ACC_STATE --> marker (where advanceArtifact injects state).
-    2. Every <section data-section-id="..."> selector (where the poller
-       toggles visibility on revealed sections).
-    3. The inline poller script at the bottom (re-reads artifact-state.json
-       every 2s when served over http://; on file:// the inlined state
-       handles the initial render).
+    1. The ACC_STATE marker further down (search the file for ACC_STATE);
+       advanceArtifact replaces it with an inline state script at write time.
+    2. Every section element that carries a data-section-id attribute;
+       the poller toggles visibility off the data-visible attribute on
+       revealed ids.
+    3. The inline poller script near the bottom of the body that re-reads
+       artifact-state.json every 2s when the artifact is served over http.
 -->
 <html lang="en">
 <head>

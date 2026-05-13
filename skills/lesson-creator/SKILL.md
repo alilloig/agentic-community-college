@@ -95,7 +95,7 @@ Keep the tests fast (under 30s total). Long-running playwright tests are out of 
 
 Draft `<lesson>/artifact/template.html` from `skills/lesson-creator/templates/template.html.tmpl`. The skeleton ships:
 
-- A header comment that points at the **shared HTML conventions** (`~/.claude/skills/html-artifact/references/html-conventions.md`). Load that file before editing the per-lesson copy — it defines the system-font stack, palette, max-width, and mobile-responsive shape every ACC artifact inherits. The lesson template only overrides what the lesson specifically needs.
+- A header comment that points at the **shared HTML conventions** (the `references/html-conventions.md` file inside the `html-artifact` skill's directory — toolkit bundles `html-artifact`, so the exact on-disk path varies with the install). Load that file before editing the per-lesson copy — it defines the system-font stack, palette, max-width, and mobile-responsive shape every ACC artifact inherits. The lesson template only overrides what the lesson specifically needs.
 - Inline `<style>` (dark theme tokens that conform to the shared conventions).
 - Inline JS poller that re-reads `./artifact-state.json` every 2s and toggles `data-visible` on sections whose `data-section-id` matches `revealed[]`.
 - One `<section data-section-id="…">` block per lesson section, in order, each hidden by default.

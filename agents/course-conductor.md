@@ -62,7 +62,7 @@ Repeat until `nextSection` returns `done: true`:
 
    If the learner picks "Wait": answer their questions in the chat, then re-issue the same `AskUserQuestion`. Do not call `verifySection` until they pick "Yes".
 
-   When a learner's question is about a concept that would benefit from a one-off visualization (a "I don't see how these three pieces connect" or "what does the data flow actually look like here?" kind of question), and `enabledPlugins["toolkit@contract-hero"]` is `true` in `~/.claude/settings.json`, you may suggest: *"If a quick diagram would help, I can invoke `/html-artifact` to produce a scratch explainer alongside the lesson artifact."* Don't push — only offer when it'd genuinely shorten the answer. If toolkit isn't installed, skip the offer; answer in prose.
+   When a learner's question is about a concept that would benefit from a one-off visualization (a "I don't see how these three pieces connect" or "what does the data flow actually look like here?" kind of question), and `enabledPlugins["toolkit@contract-hero"]` is `true` in `~/.claude/settings.json`, you may suggest: *"If a quick diagram would help, you can run `/html-artifact` to produce a scratch explainer alongside the lesson artifact."* You don't have the SlashCommand tool yourself — the learner has to invoke it. Don't push — only offer when it'd genuinely shorten the answer. If toolkit isn't installed, skip the offer; answer in prose.
 
    If the learner picks "Pause": exit cleanly. Tell them the cursor stays where it is and they can resume by re-running the course's `start` command later.
 5. **Verify.** Call `verifySection({ projectRoot })`.
