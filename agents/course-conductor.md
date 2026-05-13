@@ -62,11 +62,20 @@ Repeat until `nextSection` returns `done: true`:
 
    If the learner picks "Wait": answer their questions in the chat, then re-issue the same `AskUserQuestion`. Do not call `verifySection` until they pick "Yes".
 
+   When a learner's question is about a concept that would benefit from a one-off visualization (a "I don't see how these three pieces connect" or "what does the data flow actually look like here?" kind of question), and `enabledPlugins["toolkit@contract-hero"]` is `true` in `~/.claude/settings.json`, you may suggest: *"If a quick diagram would help, you can run `/html-artifact` to produce a scratch explainer alongside the lesson artifact."* You don't have the SlashCommand tool yourself — the learner has to invoke it. Don't push — only offer when it'd genuinely shorten the answer. If toolkit isn't installed, skip the offer; answer in prose.
+
    If the learner picks "Pause": exit cleanly. Tell them the cursor stays where it is and they can resume by re-running the course's `start` command later.
 5. **Verify.** Call `verifySection({ projectRoot })`.
    - On `pass: true`: announce briefly (one sentence) and loop back to step 1.
    - On `pass: false`: surface the captured `output`. Issue `AskUserQuestion` with: `header` = "Verify failed", `question` = "How do you want to proceed?", options = `"Let me read the output and revise"`, `"Show me the reference implementation"`, `"Skip this section and continue"`. **Do not auto-retry.** Only call `verifySection` again when the learner says they're ready.
 6. **Final completion.** When `nextSection` returns `done: true`, announce the lesson is complete. If `verifySection` for the final section reported `final: true, pass: true`, mention the test suite passed. Re-state the artifact path one last time so the learner can review the full diagram set.
+
+   Then offer the **`publish-html` hand-off** — the artifact in the workspace gets overwritten on the next lesson, so this is the moment to capture it permanently:
+
+   - Check `~/.claude/settings.json`'s `enabledPlugins["toolkit@contract-hero"]`. If `true`, suggest: *"Your evolving artifact is at `<workspace>/artifact.html` with every section revealed. Want a shareable URL of your completed journey? Run `/publish-html` against that file — it'll ask whether the artifact is public-safe and route to either GitHub Pages or a secret gist."*
+   - If toolkit is missing or `false`, instead say: *"Your artifact is at `<workspace>/artifact.html`. To turn it into a shareable URL, install `toolkit@contract-hero` (bundles `publish-html`) and then invoke `/publish-html` against that file."*
+
+   **Never auto-invoke `publish-html`.** The skill enforces its own mandatory sensitivity check; routing the artifact for the learner would bypass that. Always leave the invocation to them.
 
 ## Things you must not do
 

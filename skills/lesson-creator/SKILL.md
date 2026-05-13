@@ -7,7 +7,25 @@ description: Author a new ACC lesson end-to-end — seeds a reference codebase i
 
 You are authoring a new lesson for the Agentic Community College (ACC) framework. A lesson is a hard copy of a reference codebase plus a curated set of step-by-step prompts that drives a learner to a functionally-equivalent implementation. Each lesson is emitted into a **course** (a separate Claude Code plugin that declares `accContent`).
 
-Run the 7 steps below in order. Don't skip steps — the validation pass at the end depends on every artifact being in place.
+Run the 8 steps below in order. Don't skip steps — the validation pass at the end depends on every artifact being in place.
+
+## Step 0 — Toolkit availability check
+
+Authoring a lesson the recommended way (Step 6) delegates several artifact-authoring tasks to skills bundled by the `toolkit@contract-hero` plugin:
+
+| Skill | Used in | Purpose |
+|---|---|---|
+| `html-artifact` | Step 6 | Family-aesthetic conventions for the per-lesson template and per-section visualizations |
+| `for-dummies` | Step 6 (and `description.md` draft) | Auto-derives a project-intro draft from the seeded `reference-app/` |
+| `move-call-chains` | Step 6 (Move lessons only) | Generates per-user-story inline SVG call-chain diagrams |
+| `publish-html` | Lesson handoff (offered by the conductor after the learner finishes) | Turns the rendered `artifact.html` into a shareable URL |
+
+Read `~/.claude/settings.json` and check `enabledPlugins["toolkit@contract-hero"]`:
+
+- If `true` → proceed to Step 1.
+- If missing or `false` → use `AskUserQuestion` with: *"The recommended authoring flow delegates to skills bundled by `toolkit@contract-hero`. Install it, or hand-author every artifact?"* Options: `"Install toolkit@contract-hero and re-run"` (recommended) or `"Proceed without — I'll hand-author every artifact"`.
+
+If the user picks "Proceed without", continue but state in Step 6 that the delegated skills are not being invoked. Never silently skip this check.
 
 ## Step 1 — Target selection
 
@@ -33,6 +51,8 @@ Ask the user (using AskUserQuestion where natural) for:
   2. If it does, just add the id to this lesson's `prerequisites` array. No further action.
   3. If it doesn't, **offer to declare it inline now**. Run the same probe-kind wizard `course-creator` uses (kind, message_pass, message_fail, params, optional remediation). Append the new decl to the course's `accContent.probes` array, write the manifest back atomically, then add the id to the lesson's `prerequisites`.
   4. Refuse to add a prerequisite id without declaring it — silent missing-probe references would break the conductor at runtime.
+
+  Every course ships with a pre-seeded `toolkit-installed` probe. Most lessons should **not** add it to their `prerequisites` — toolkit affordances (conductor's `publish-html` hand-off, scratch `html-artifact` suggestions) degrade gracefully when absent. Add it *only* when a section body instructs the learner to invoke a toolkit skill mid-lesson.
 - **Chapter breakdown**: ask whether to (a) **auto-derive** sections from the reference-app's natural milestones (you read the code and propose 5–10 sections), or (b) **manual** (the user names the sections).
 
 ## Step 3 — Seed transform
@@ -75,18 +95,35 @@ Keep the tests fast (under 30s total). Long-running playwright tests are out of 
 
 Draft `<lesson>/artifact/template.html` from `skills/lesson-creator/templates/template.html.tmpl`. The skeleton ships:
 
-- Inline `<style>` (dark theme, mirrors `path-map.html`'s tokens).
-- Inline JS poller (~40 lines, already in the template) that re-reads `./artifact-state.json` every 2s and toggles `data-visible` on sections whose `data-section-id` matches `revealed[]`.
+- A header comment that points at the **shared HTML conventions** (the `references/html-conventions.md` file inside the `html-artifact` skill's directory — toolkit bundles `html-artifact`, so the exact on-disk path varies with the install). Load that file before editing the per-lesson copy — it defines the system-font stack, palette, max-width, and mobile-responsive shape every ACC artifact inherits. The lesson template only overrides what the lesson specifically needs.
+- Inline `<style>` (dark theme tokens that conform to the shared conventions).
+- Inline JS poller that re-reads `./artifact-state.json` every 2s and toggles `data-visible` on sections whose `data-section-id` matches `revealed[]`.
 - One `<section data-section-id="…">` block per lesson section, in order, each hidden by default.
-- An inline SVG architecture diagram of the final app (you draw this fresh — it's the single most-viewed piece of content during the lesson).
+- An inline SVG architecture diagram of the final app — the single most-viewed piece of content during the lesson.
 
-Each section block should:
+### 6a — Delegate raw materials before drawing from scratch
+
+The diagrams and intro prose are where authoring time goes. Before drawing manually, invoke the right skill from `toolkit@contract-hero` (Step 0 confirmed availability):
+
+| If the lesson teaches… | Invoke | Use the output for |
+|---|---|---|
+| A **Move package** (smart contracts) | `/move-call-chains` against the lesson's `reference-app/` Move modules | Drop the generated per-user-story `<svg>` blocks into the per-section blocks of the template. The skill already follows the shared conventions. |
+| A **TS/JS/React app** (or anything non-Move) needing per-section visualizations | `/html-artifact` on a scratch path (e.g. `<lesson>/.scratch/section-N.html`) per visualization | Lift the generated `<svg>` block into the matching per-section block. Both skills draw from the same conventions, so the lift is mechanical. |
+| Any seeded `reference-app/` that needs a learner-facing intro | `/for-dummies` against `<lesson>/reference-app/` | Use the generated guide as a *draft* for `description.md` and the "Section 0 / orientation" block. Trim to a one-paragraph lede + one-paragraph architecture-at-a-glance — the for-dummies output is exhaustive on purpose. |
+
+If Step 0 found toolkit absent and the user opted into hand-authoring, skip the table above and draw every diagram manually. State this explicitly when you hand off so the validation pass knows to be lenient.
+
+### 6b — Per-section block structure
+
+Each `<section data-section-id="…">` block should:
 
 - State what the learner has built so far.
 - Visualize the new piece they're adding (boxes-and-arrows SVG, code snippets, a per-section flow diagram).
 - Avoid duplicating the section's `body_md` text — the body is the *what*, the artifact is the *why and how*.
 
-Run `python3 -m http.server` (or `open file://…`) and confirm the artifact renders correctly in a browser before continuing.
+### 6c — Verify it renders
+
+Run `python3 -m http.server` (or `open file://…`) and confirm the artifact renders correctly in a browser before continuing. Click through each section's `data-section-id` by hand-revealing it (set `data-visible="true"` in DevTools) to confirm the per-section visuals work in isolation, not just in cascade.
 
 ## Step 7 — Validation pass
 

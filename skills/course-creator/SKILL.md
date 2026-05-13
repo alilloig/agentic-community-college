@@ -26,7 +26,17 @@ Collect:
 
 ## Step 3 — Probe declarations (the load-bearing step)
 
-Ask the user: "What prerequisites does any lesson in this course need?"
+### Pre-seeded probe
+
+The template ships with one probe already declared: **`toolkit-installed`** (kind: `claude-plugin-enabled`, key: `toolkit@contract-hero`). ACC's conductor and `lesson-creator` delegate to skills bundled by that plugin (`publish-html`, `html-artifact`, `for-dummies`, `move-call-chains`).
+
+Most lessons should leave `prerequisites: []` — toolkit absence degrades gracefully (the conductor's offers become install hints). Only add `"toolkit-installed"` to a lesson's `prerequisites` when section bodies explicitly drive the learner to invoke a toolkit skill mid-lesson.
+
+The author can delete the seeded probe if they object to the dependency, but advise against it — the conductor's affordances assume it's declared somewhere accessible.
+
+### Adding more probes
+
+Ask the user: "What *additional* prerequisites does any lesson in this course need?"
 
 Common categories to prompt them through:
 
