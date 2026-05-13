@@ -26,7 +26,17 @@ Collect:
 
 ## Step 3 — Probe declarations (the load-bearing step)
 
-Ask the user: "What prerequisites does any lesson in this course need?"
+### Pre-seeded probe
+
+The `plugin.json.tmpl` template ships with one probe already declared: **`toolkit-installed`** (kind: `claude-plugin-enabled`, key: `toolkit@contract-hero`). It's there because ACC's runtime conductor and the `lesson-creator` skill both delegate to skills bundled by that plugin (`publish-html` for the post-lesson hand-off, `html-artifact` for scratch explainers, `for-dummies` and `move-call-chains` for authoring-time SVG generation).
+
+Most lessons leave `prerequisites: []` and let toolkit absence degrade gracefully (the conductor's offers become hints instead of executions). A lesson that explicitly drives the learner to invoke a toolkit skill mid-section should add `"toolkit-installed"` to its `prerequisites` so the lesson can't start without it.
+
+If the course author objects to the dependency, they can delete the seeded probe from `plugin.json` — but advise against it: the conductor's affordances assume it's declared somewhere accessible.
+
+### Adding more probes
+
+Ask the user: "What *additional* prerequisites does any lesson in this course need?"
 
 Common categories to prompt them through:
 

@@ -24,3 +24,6 @@ node_modules/
 
 # Build / coverage artifacts
 coverage/
+
+# Multi-agent PR review scratch (ship-reviewed-pr skill workspace)
+.claude-pr-review/

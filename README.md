@@ -16,6 +16,10 @@ A Claude Code plugin that turns a Claude Code session into an interactive coding
 
 ACC ships no learning content of its own — you install (or build) a course plugin alongside it.
 
+## Recommended companion plugin: `toolkit@contract-hero`
+
+ACC's authoring flow and runtime conductor delegate several HTML-deliverable tasks (per-section SVG diagrams, post-lesson snapshot publishing, project-intro drafts) to skills bundled by [`toolkit@contract-hero`](https://github.com/alilloig/contract-hero-marketplace). It's not required — lessons still run without it — but you'll get the full author / learner experience by installing it alongside ACC. The course-creator template pre-seeds a `toolkit-installed` probe so every new course you scaffold knows about the dependency.
+
 ## Vocabulary
 
 - **Course** — a content plugin (one git repo, one domain). Declares `accContent`. The first one is [`acc-deepbook-course`](https://github.com/alilloig/acc-deepbook-course).

@@ -28,6 +28,24 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 - **Course** — a content plugin. Declares `accContent: { lessons: "./lessons/" }` in `plugin.json`. Discovered by ACC at runtime via `~/.claude/plugins/installed_plugins.json`. First one: [`acc-deepbook-course`](https://github.com/alilloig/acc-deepbook-course).
 - **Lesson** — a single end-to-end learning experience inside a course (`lessons/<slug>/`). Always namespaced by course in the conductor flow: `<course-plugin-key>/<slug>`.
 - **Section** — a single prompt inside a lesson. The learner advances section by section; each section has a `key_moment` line that steers learning-mode TODO placement.
+- **Toolkit** — `toolkit@contract-hero`. An external Claude Code plugin that bundles the HTML-deliverable skills ACC delegates to. See "Toolkit dependency" below.
+
+## Toolkit dependency (`toolkit@contract-hero`)
+
+ACC's authoring skills and runtime conductor delegate several artifact-related tasks to skills bundled by `toolkit@contract-hero`. The plugin lives in the [`contract-hero` marketplace](https://github.com/alilloig/contract-hero-marketplace) and must bundle (at minimum) these skills:
+
+| Skill | Used by | Failure mode if missing |
+|---|---|---|
+| `html-artifact` | `lesson-creator` Step 6 (per-section SVG), `course-conductor` Step 4 (in-section scratch explainer) | Author hand-draws SVG; conductor answers in prose only |
+| `publish-html` | `course-conductor` Step 6 (post-lesson hand-off) | Conductor falls back to "install toolkit to publish" hint |
+| `for-dummies` | `lesson-creator` Step 6 (description.md draft from seeded reference-app) | Author writes description.md from scratch |
+| `move-call-chains` | `lesson-creator` Step 6 (Move-lesson SVG diagrams) | Author hand-draws Move call-chain SVG |
+
+**Probe identification.** The course-creator template pre-seeds a `toolkit-installed` probe (`kind: claude-plugin-enabled`, `plugin_key: "toolkit@contract-hero"`) in every new course's `plugin.json`. Lessons can opt-in to the prereq by adding `"toolkit-installed"` to their `prerequisites` array; the default is to leave prerequisites empty and let toolkit absence degrade gracefully (the conductor's hand-offs become install hints instead of skill invocations).
+
+**Authoring-time vs runtime.** The `lesson-creator` skill's Step 0 hard-checks for toolkit before authoring proceeds — authors actually need the skills to follow the recommended Step 6 flow. The conductor's offers are soft — learners with toolkit get publish-html / scratch-html-artifact affordances; learners without get the same lesson minus those affordances.
+
+**Why route through a plugin instead of `filesystem-exists`?** `claude-plugin-enabled` checks a single line in `~/.claude/settings.json` and works whether the skills are bundled in a plugin's `skills/` dir, copied to `~/.claude/skills/`, or installed any other way the plugin's manifest declares. `filesystem-exists` against `~/.claude/skills/<name>/SKILL.md` would miss the plugin-bundled installation path and force per-skill probes (four declarations instead of one).
 
 ## Component Map
 
