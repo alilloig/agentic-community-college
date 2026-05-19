@@ -32,7 +32,7 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 
 ## Toolkit dependency (`toolkit@contract-hero`)
 
-ACC's authoring skills and runtime conductor delegate several artifact-related tasks to skills bundled by `toolkit@contract-hero`. The plugin lives in the [`contract-hero` marketplace](https://github.com/alilloig/contract-hero-marketplace) and must bundle (at minimum) these skills:
+ACC's authoring skills and runtime conductor delegate several artifact-related tasks to skills bundled by `toolkit@contract-hero`. The plugin lives in the [`contract-hero/plugin-marketplace`](https://github.com/contract-hero/plugin-marketplace) and must bundle (at minimum) these skills:
 
 | Skill | Used by | Failure mode if missing |
 |---|---|---|
