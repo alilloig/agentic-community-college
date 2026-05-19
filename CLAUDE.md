@@ -25,7 +25,7 @@ The plugin manifest spawns `node mcp/server/dist/index.js` over stdio, so `pnpm 
 ## Vocabulary
 
 - **ACC** — the framework. This repo. Ships the MCP server + conductor + skills.
-- **Course** — a content plugin. Declares `accContent: { lessons: "./lessons/" }` in `plugin.json`. Discovered by ACC at runtime via `~/.claude/plugins/installed_plugins.json`. First one: [`acc-deepbook-course`](https://github.com/alilloig/acc-deepbook-course).
+- **Course** — a content plugin. Declares `accContent: { lessons: "./lessons/" }` in `plugin.json`. Discovered by ACC at runtime via `~/.claude/plugins/installed_plugins.json`. First one: [`acc-deepbook-course`](https://github.com/contract-hero/acc-deepbook-course).
 - **Lesson** — a single end-to-end learning experience inside a course (`lessons/<slug>/`). Always namespaced by course in the conductor flow: `<course-plugin-key>/<slug>`.
 - **Section** — a single prompt inside a lesson. The learner advances section by section; each section has a `key_moment` line that steers learning-mode TODO placement.
 - **Toolkit** — `toolkit@contract-hero`. An external Claude Code plugin that bundles the HTML-deliverable skills ACC delegates to. See "Toolkit dependency" below.
