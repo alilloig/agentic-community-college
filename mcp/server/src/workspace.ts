@@ -25,6 +25,7 @@ import type { LessonData } from './schemas/lesson.js';
 import { validateWorkspaceMeta, WORKSPACE_META_SCHEMA_VERSION } from './schemas/workspace.js';
 import type { WorkspaceMeta } from './schemas/workspace.js';
 import { atomicWriteFile } from './atomicWrite.js';
+import { envFileContents } from './pathResolver.js';
 
 export type { WorkspaceMeta };
 
@@ -39,7 +40,16 @@ export interface WorkspaceOptions {
   /** Override for the install command spawn. Tests stub this; production
    * leaves it undefined and we fall back to node:child_process.spawn. */
   spawn?: typeof defaultSpawn;
+  /** Pre-resolved env-var bag (e.g. `ACC_PATHS_*` + `VITE_ACC_PATHS_*`) to
+   * (a) merge into the host_install_command spawn env and (b) persist into
+   * `.env.acc-paths` so conductor-spawned dev scripts can `source` it.
+   * Computed by the caller (selectLesson) so this module stays decoupled
+   * from `pluginsRoot` + `settings`. Omit / leave empty to skip both. */
+  pathEnv?: Record<string, string>;
 }
+
+/** Filename for the persisted path env. Plain dotenv shape (KEY="value\n…"). */
+export const PATH_ENV_FILE = '.env.acc-paths';
 
 export interface PrepareWorkspaceResult {
   workspacePath: string;
@@ -120,9 +130,13 @@ export async function prepareWorkspace(
     );
   }
 
-  // 2. If existing workspace metadata matches, reuse.
+  // 2. If existing workspace metadata matches, reuse — but always refresh
+  //    `.env.acc-paths` because the user may have changed `~/.acc/config.json`
+  //    since the workspace was created. The host signature only fingerprints
+  //    the lesson's seed tarball, not the user's path overrides.
   const existingMeta = await tryLoadWorkspaceMeta(workspacePath);
   if (existingMeta && existingMeta.host_signature === hostSignature && existingMeta.path_slug === slug) {
+    await writePathEnvFile(workspacePath, opts.pathEnv);
     return { workspacePath, created: false };
   }
 
@@ -163,7 +177,13 @@ export async function prepareWorkspace(
     starterFiles.push(file.path);
   }
 
-  // 4c. Run host install command if declared.
+  // 4c. Drop the resolved-paths env file BEFORE the install command so any
+  //     postinstall hook can source it if it wants. Re-written on every
+  //     prepareWorkspace call so user-level path edits propagate.
+  await writePathEnvFile(workspacePath, opts.pathEnv);
+
+  // 4d. Run host install command if declared. Path env is merged into the
+  //     child's env so install hooks can reference `$ACC_PATHS_*` directly.
   let installLogs: string[] | undefined;
   if (lessonData.workspace.host_install_command) {
     installLogs = await runHostInstall(
@@ -173,7 +193,7 @@ export async function prepareWorkspace(
     );
   }
 
-  // 4d. Write metadata atomically.
+  // 4e. Write metadata atomically.
   const meta: WorkspaceMeta = {
     schema_version: WORKSPACE_META_SCHEMA_VERSION,
     path_slug: slug,
@@ -249,6 +269,35 @@ export async function saveWorkspaceMeta(workspacePath: string, meta: WorkspaceMe
   await atomicWriteFile(metaPath, JSON.stringify(meta, null, 2), {
     mode: 0o600,
     tmpPrefix: '.course-state.tmp',
+  });
+}
+
+/**
+ * Persist the resolved path env to `.env.acc-paths` inside the workspace.
+ * When `env` is undefined / empty, best-effort unlinks any pre-existing
+ * file so a stale env from a previous prep (where the course declared
+ * paths and has since removed them) doesn't keep masking the removal.
+ * Atomic write on the populated path.
+ */
+async function writePathEnvFile(
+  workspacePath: string,
+  env: Record<string, string> | undefined,
+): Promise<void> {
+  const target = path.join(workspacePath, PATH_ENV_FILE);
+  if (!env || Object.keys(env).length === 0) {
+    // Best-effort unlink — ignore ENOENT (file already absent is fine);
+    // surface any other error to the caller via re-throw.
+    try {
+      await fsPromises.unlink(target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    return;
+  }
+  await fsPromises.mkdir(workspacePath, { recursive: true });
+  await atomicWriteFile(target, envFileContents(env), {
+    mode: 0o600,
+    tmpPrefix: '.env.acc-paths.tmp',
   });
 }
 
@@ -331,12 +380,14 @@ async function runHostInstall(
     throw new WorkspacePrepareError('invalid-config', `Empty host_install_command`);
   }
 
+  const installEnv: NodeJS.ProcessEnv = { ...process.env, ...(opts.pathEnv ?? {}) };
+
   const logs: string[] = [];
   await new Promise<void>((resolve, reject) => {
     const child = spawnFn(bin, args, {
       cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: process.env,
+      env: installEnv,
     } as SpawnOptions);
 
     let resolved = false;

@@ -4,6 +4,13 @@ import { probeOutputStyle } from '../outputStyle.js';
 import { discoverCourses } from '../pluginsRoot.js';
 import { loadLessonBySlug } from '../registry.js';
 import { prepareWorkspace, WorkspacePrepareError } from '../workspace.js';
+import {
+  accConfigExists,
+  loadAccConfig,
+  AccConfigError,
+  type AccConfig,
+} from '../settings.js';
+import { resolveCoursePaths, envVarsFor } from '../pathResolver.js';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 
@@ -32,6 +39,14 @@ export interface SelectLessonResult {
   workspacePath?: string;
   workspaceCreated?: boolean;
   workspaceArchivedTo?: string;
+  /** Surfaces the one-time first-run setup prompt to the conductor. The
+   * conductor calls `configureWorkspace` once with the learner's chosen
+   * workspace_root and never sees this field again. Absent when the user
+   * already has a `~/.acc/config.json`. */
+  firstRunSetup?: {
+    needsWorkspaceRoot: boolean;
+    defaultWorkspaceRoot: string;
+  };
 }
 
 const DEFAULT_OUTPUT_STYLE: OutputStyleKind = 'learning';
@@ -39,25 +54,22 @@ const DEFAULT_OUTPUT_STYLE: OutputStyleKind = 'learning';
 export async function runSelectLesson({
   projectRoot,
   slug,
+  homeDir,
 }: {
   projectRoot: string;
   slug: string;
+  /** Test seam for the ACC config home — defaults to `os.homedir()`. */
+  homeDir?: string;
 }): Promise<SelectLessonResult> {
   const styleCheck = await probeOutputStyle();
   if (!styleCheck.ok) {
     return { ok: false, errors: ['output-style-disabled'] };
   }
 
-  // Schema-mismatch / corrupt states bubble up; the learner is expected to
-  // re-run selectLesson which mints fresh v4 state.
-  const stateResult = await loadState(projectRoot);
-  if (stateResult.kind === 'corrupt') {
-    // Surface the diagnostic but proceed to mint fresh state (the corruption
-    // archive flow already preserved the original bytes).
-  } else if (stateResult.kind === 'schema-mismatch') {
-    // v3 (or older) state on disk → ignore it and mint fresh v4. Old file
-    // is left untouched on disk so the user can recover if they want.
-  }
+  // Load state purely for its side effect — corrupt JSON triggers the archive
+  // flow inside `loadState`, and a schema-mismatch leaves the old file on disk
+  // so the user can recover. Either way we proceed to mint fresh v4 state.
+  await loadState(projectRoot);
 
   const discovery = discoverCourses();
   if (discovery.courses.length === 0) {
@@ -75,12 +87,41 @@ export async function runSelectLesson({
   }
   const { lesson, info } = loaded;
 
+  // Resolve the owning course's `${paths.<id>}` declarations into absolute
+  // paths so we can both surface them to the conductor and inject them as
+  // env vars into any workspace install spawn. Done BEFORE workspace prep so
+  // the install command sees the env on first creation.
+  const owningCourse = discovery.courses.find((c) => c.name === info.course_name);
+  const configFromDisk = await accConfigExists(homeDir);
+  let accConfig: AccConfig;
+  try {
+    accConfig = await loadAccConfig(homeDir);
+  } catch (err) {
+    if (err instanceof AccConfigError) {
+      return { ok: false, errors: [`acc-config-${err.kind}: ${err.message}`] };
+    }
+    // Any other throw shouldn't happen — loadAccConfig wraps every read/parse
+    // failure in AccConfigError. Surface as a hard error rather than silently
+    // falling back to defaults (which would hide the broken config from the
+    // learner and ignore their override).
+    return {
+      ok: false,
+      errors: [`acc-config-unexpected: ${err instanceof Error ? err.message : String(err)}`],
+    };
+  }
+  const resolvedPaths = owningCourse && owningCourse.paths.length > 0
+    ? resolveCoursePaths(owningCourse.name, owningCourse.paths, accConfig, homeDir)
+    : {};
+  const pathEnv = envVarsFor(resolvedPaths);
+
   let workspacePath: string | undefined;
   let workspaceCreated: boolean | undefined;
   let workspaceArchivedTo: string | undefined;
   if (lesson.workspace) {
     try {
-      const ws = await prepareWorkspace(lesson.slug, info.lesson_dir, lesson);
+      const ws = await prepareWorkspace(lesson.slug, info.lesson_dir, lesson, {
+        pathEnv,
+      });
       workspacePath = ws.workspacePath;
       workspaceCreated = ws.created;
       workspaceArchivedTo = ws.archivedTo;
@@ -158,6 +199,16 @@ export async function runSelectLesson({
   if (workspacePath !== undefined) result.workspacePath = workspacePath;
   if (workspaceCreated !== undefined) result.workspaceCreated = workspaceCreated;
   if (workspaceArchivedTo !== undefined) result.workspaceArchivedTo = workspaceArchivedTo;
+
+  // One-time nudge: surface a friendly first-run prompt the very first time
+  // a learner picks a lesson. Idempotent — once they call `configureWorkspace`
+  // and a `~/.acc/config.json` exists, this field stops appearing.
+  if (!configFromDisk) {
+    result.firstRunSetup = {
+      needsWorkspaceRoot: true,
+      defaultWorkspaceRoot: accConfig.workspace_root,
+    };
+  }
 
   return result;
 }

@@ -278,6 +278,113 @@ describe('pluginsRoot.discoverCourses', () => {
     expect(result.warnings.some((w) => w.kind === 'course-plugin-probes-invalid')).toBe(true);
   });
 
+  it('captures accContent.paths when valid', () => {
+    fixture = makeFixture([
+      {
+        pluginKey: 'paths-course@local',
+        pluginManifest: {
+          name: 'paths-course',
+          accContent: {
+            lessons: './lessons',
+            paths: [
+              { id: 'sandbox', default: 'deepbook-sandbox', description: 'sb checkout' },
+              { id: 'docs', default: 'shared-docs' },
+            ],
+          },
+        },
+        lessonsSubdir: 'lessons',
+      },
+    ]);
+    const result = discoverCourses({ installedPluginsFile: fixture.installedPluginsFile });
+    expect(result.warnings).toEqual([]);
+    expect(result.courses[0].paths).toHaveLength(2);
+    expect(result.courses[0].paths[0].id).toBe('sandbox');
+    expect(result.courses[0].paths[0].description).toBe('sb checkout');
+  });
+
+  it("warns and drops paths when a default contains '..'", () => {
+    fixture = makeFixture([
+      {
+        pluginKey: 'evil-paths@local',
+        pluginManifest: {
+          name: 'evil-paths',
+          accContent: {
+            lessons: './lessons',
+            paths: [{ id: 'sandbox', default: 'evil/../path' }],
+          },
+        },
+        lessonsSubdir: 'lessons',
+      },
+    ]);
+    const result = discoverCourses({ installedPluginsFile: fixture.installedPluginsFile });
+    expect(result.warnings.some((w) => w.kind === 'course-plugin-paths-invalid')).toBe(true);
+    expect(result.courses[0].paths).toEqual([]);
+  });
+
+  it('warns and drops probes when a probe references an undeclared path id', () => {
+    fixture = makeFixture([
+      {
+        pluginKey: 'broken-xref@local',
+        pluginManifest: {
+          name: 'broken-xref',
+          accContent: {
+            lessons: './lessons',
+            paths: [{ id: 'sandbox', default: 'deepbook-sandbox' }],
+            probes: [
+              {
+                id: 'p',
+                kind: 'filesystem-exists',
+                message_pass: 'ok',
+                message_fail: 'no',
+                params: { path: '${paths.typo}' },
+              },
+            ],
+          },
+        },
+        lessonsSubdir: 'lessons',
+      },
+    ]);
+    const result = discoverCourses({ installedPluginsFile: fixture.installedPluginsFile });
+    expect(result.warnings.some((w) => w.kind === 'course-plugin-paths-invalid')).toBe(true);
+    expect(result.courses[0].probes).toEqual([]);
+    // The paths block itself is still valid, so it stays surfaced.
+    expect(result.courses[0].paths).toHaveLength(1);
+  });
+
+  it('accepts a probe that references a declared path id', () => {
+    fixture = makeFixture([
+      {
+        pluginKey: 'ok-xref@local',
+        pluginManifest: {
+          name: 'ok-xref',
+          accContent: {
+            lessons: './lessons',
+            paths: [{ id: 'sandbox', default: 'deepbook-sandbox' }],
+            probes: [
+              {
+                id: 'p',
+                kind: 'filesystem-exists',
+                message_pass: 'ok',
+                message_fail: 'no',
+                params: { path: '${paths.sandbox}' },
+                remediation: {
+                  kind: 'shell',
+                  command: 'git clone https://example.com/x "${paths.sandbox}"',
+                  cwd: '${paths.sandbox}',
+                },
+              },
+            ],
+          },
+        },
+        lessonsSubdir: 'lessons',
+      },
+    ]);
+    const result = discoverCourses({ installedPluginsFile: fixture.installedPluginsFile });
+    expect(result.warnings).toEqual([]);
+    expect(result.courses[0].probes).toHaveLength(1);
+    expect(result.courses[0].paths).toHaveLength(1);
+  });
+
   it('honors the ACC_INSTALLED_PLUGINS_FILE env var', () => {
     fixture = makeFixture([
       {

@@ -61,7 +61,7 @@ ACC's authoring skills and runtime conductor delegate several artifact-related t
 | `skills/course-creator/templates/` | `plugin.json.tmpl`, `README.md.tmpl`, `CLAUDE.md.tmpl`, `.gitignore.tmpl`. |
 | `skills/lesson-creator/SKILL.md` | Authoring skill that scaffolds a new lesson into an existing course plugin. Handles on-demand probe declaration when a lesson lists a prerequisite the course hasn't declared yet. |
 | `skills/lesson-creator/templates/` | `lesson.json.tmpl`, `sections.json.tmpl`, `template.html.tmpl`, `description.md.tmpl`. |
-| `mcp/server/src/index.ts` | MCP entry; registers 8 tools and starts stdio transport when run as a script. |
+| `mcp/server/src/index.ts` | MCP entry; registers 9 tools and starts stdio transport when run as a script. |
 | `mcp/server/src/tools/start.ts` | `start` — discovers courses + lists lessons + reports preflight/state. |
 | `mcp/server/src/tools/runPreflightProbe.ts` | `runPreflightProbe` — runs a named probe (unchanged from sui-mcp-course). |
 | `mcp/server/src/tools/selectLesson.ts` | `selectLesson` — mints v4 state, preps the workspace, returns description + personalization prompts + output-mode picker. |
@@ -70,6 +70,10 @@ ACC's authoring skills and runtime conductor delegate several artifact-related t
 | `mcp/server/src/tools/nextSection.ts` | `nextSection` — substitutes personalization into the section body, returns body + key_moment + artifact_section_id. |
 | `mcp/server/src/tools/verifySection.ts` | `verifySection` — runs the current or final verification spec; advances cursor on pass. |
 | `mcp/server/src/tools/advanceArtifact.ts` | `advanceArtifact` — atomically rewrites `<workspace>/artifact-state.json` so the open browser tab self-updates. |
+| `mcp/server/src/tools/configureWorkspace.ts` | `configureWorkspace` — read/write `~/.acc/config.json` (workspace_root + per-course path overrides). |
+| `mcp/server/src/settings.ts` | `loadAccConfig` / `saveAccConfig` / `mergeAccConfig` for the user-level config file (`~/.acc/config.json`). |
+| `mcp/server/src/pathResolver.ts` | `resolveCoursePaths`, `substitutePathRefs`, `envVarsFor`, `envFileContents` — the only `${paths.<id>}` substitution channel. |
+| `mcp/server/src/schemas/contentPaths.ts` | Validator for `accContent.paths` declarations + cross-reference check against probe `${paths.<id>}` references. |
 | `mcp/server/src/pluginsRoot.ts` | `discoverCourses()` — scans `~/.claude/plugins/installed_plugins.json` for `accContent` plugins. |
 | `mcp/server/src/registry.ts` | `scanCourses()` + `loadLessonBySlug()` over the discovered course plugins. |
 | `mcp/server/src/state.ts` | State load/save with atomic writes (tmp + fsync + rename) and corruption archiving. `STATE_SCHEMA_VERSION = 4`. State dir: `.acc/`. |
@@ -105,6 +109,7 @@ ACC's authoring skills and runtime conductor delegate several artifact-related t
 13. **`lesson.json:prerequisites` is a flat list of probe-ID strings.** The schema only enforces non-empty-string entries; runtime catches unknown IDs when `runPreflightProbe` runs. No hardcoded allowlist in the schema, no cross-reference table.
 14. **HTML artifact updates flow through `advanceArtifact` only.** Don't have the conductor write `artifact-state.json` directly — the atomic-write seam is what makes the page poller's reads safe.
 15. **Path safety is non-negotiable.** Anything that resolves a lesson-relative path (template files, body_md, host directory, verification cwd, probe `path` params, probe `cwd` remediations) goes through `pathSafety.containedPath` / the schema validators / `dynamicProbes.expandUserPath`. Reject `..` segments and leading slashes; require `~/` or absolute for declarative probe paths.
+16. **Configurable paths are a separate code path from personalization.** `${paths.<id>}` substitution lives in `pathResolver.substitutePathRefs` and runs ONLY against probe `params` + `remediation.command` + `remediation.cwd`, BEFORE the probe runner sees them. Never call `personalization.substitutePromptOnly` on a path-shaped field, and never call `pathResolver.substitutePathRefs` on a section body. The two channels are intentionally disjoint — the AC-6.3 personalization guard stays unchanged. Path-ref validation is cross-checked against `accContent.paths` at manifest load time (`schemas/contentPaths.ts:validateProbePathRefs`); unknown ids drop the course's probes so the learner gets a clear error, not a runtime crash. New file map entries: `src/settings.ts`, `src/pathResolver.ts`, `src/schemas/contentPaths.ts`, `src/tools/configureWorkspace.ts`.
 
 ## Verification Modes
 

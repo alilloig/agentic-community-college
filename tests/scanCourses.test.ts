@@ -45,7 +45,7 @@ function makeWellFormedLesson(root: string, slug: string): void {
 function buildCourse(name: string, lessonSlugs: string[]): DiscoveredCourse {
   const lessonsRoot = makeTempRoot(`acc-course-${name}-`);
   for (const slug of lessonSlugs) makeWellFormedLesson(lessonsRoot, slug);
-  return { name: `${name}@local`, dir: lessonsRoot, lessonsRoot, probes: [] };
+  return { name: `${name}@local`, dir: lessonsRoot, lessonsRoot, probes: [], paths: [] };
 }
 
 afterEach(() => {
@@ -97,6 +97,7 @@ describe('scanCourses', () => {
       dir: lessonsRoot,
       lessonsRoot,
       probes: [],
+      paths: [],
     };
     const result = await scanCourses([course]);
     expect(result.lessons).toHaveLength(1);

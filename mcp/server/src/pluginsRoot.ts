@@ -29,18 +29,25 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { validateCourseProbes, type CourseProbeDecl } from './schemas/courseProbes.js';
+import {
+  validateContentPaths,
+  validateProbePathRefs,
+  type ContentPathDecl,
+} from './schemas/contentPaths.js';
 
 /**
  * One discovered course. `name` is the plugin key from `installed_plugins.json`
  * (e.g. `acc-deepbook-course@local`). `dir` is the plugin install dir.
  * `lessonsRoot` is the absolute path to where lessons live inside that plugin.
  * `probes` are the course's declarative probe decls (empty array if none).
+ * `paths` are the course's declarative path decls (empty array if none).
  */
 export interface DiscoveredCourse {
   name: string;
   dir: string;
   lessonsRoot: string;
   probes: CourseProbeDecl[];
+  paths: ContentPathDecl[];
 }
 
 export interface CourseDiscoveryWarning {
@@ -51,7 +58,8 @@ export interface CourseDiscoveryWarning {
     | 'course-plugin-install-missing'
     | 'course-plugin-lessons-missing'
     | 'course-plugin-acc-content-invalid'
-    | 'course-plugin-probes-invalid';
+    | 'course-plugin-probes-invalid'
+    | 'course-plugin-paths-invalid';
   message: string;
   pluginKey?: string;
   path?: string;
@@ -250,12 +258,32 @@ export function discoverCourses(opts: DiscoverCoursesOptions = {}): CourseDiscov
     if (seenLessonsRoots.has(lessonsResolved)) continue;
     seenLessonsRoots.add(lessonsResolved);
 
+    const accContentObj = accContent as Record<string, unknown>;
+
+    // Optional accContent.paths — declarative named filesystem paths the
+    // course's probes / reference apps reference via `${paths.<id>}`. Parsed
+    // before probes so we can cross-reference them in the same pass.
+    let paths: ContentPathDecl[] = [];
+    let pathsValid = true;
+    if (accContentObj['paths'] !== undefined) {
+      const pathsValidation = validateContentPaths(accContentObj['paths']);
+      if (!pathsValidation.ok) {
+        warnings.push({
+          kind: 'course-plugin-paths-invalid',
+          message: `${pluginKey}: ${pathsValidation.error}`,
+          pluginKey,
+          path: manifestPath,
+        });
+        pathsValid = false;
+      } else {
+        paths = pathsValidation.value;
+      }
+    }
+
     // Optional accContent.probes — declarative prerequisite checks.
     let probes: CourseProbeDecl[] = [];
-    if ((accContent as Record<string, unknown>)['probes'] !== undefined) {
-      const probesValidation = validateCourseProbes(
-        (accContent as Record<string, unknown>)['probes'],
-      );
+    if (accContentObj['probes'] !== undefined) {
+      const probesValidation = validateCourseProbes(accContentObj['probes']);
       if (!probesValidation.ok) {
         warnings.push({
           kind: 'course-plugin-probes-invalid',
@@ -270,11 +298,37 @@ export function discoverCourses(opts: DiscoverCoursesOptions = {}): CourseDiscov
       }
     }
 
+    // Cross-reference: every `${paths.<id>}` inside a probe must match a
+    // declared id on the same manifest. If paths failed earlier or any
+    // reference is unresolved, drop the probes so a learner gets a clear
+    // "no probe declared" error instead of a runtime substitution crash.
+    if (probes.length > 0) {
+      const declaredIds = new Set(paths.map((p) => p.id));
+      const xref = validateProbePathRefs(declaredIds, probes);
+      if (!xref.ok) {
+        warnings.push({
+          kind: 'course-plugin-paths-invalid',
+          message: `${pluginKey}: ${xref.error}`,
+          pluginKey,
+          path: manifestPath,
+        });
+        probes = [];
+      } else if (!pathsValid) {
+        // paths validation failed *and* the course shipped probes — any of
+        // those probes referencing the (now-empty) paths block would surface
+        // a confusing "no probe declared" error. Drop them defensively.
+        // No additional warning: the earlier paths-invalid warning is the
+        // root cause and surfaces in the conductor.
+        probes = [];
+      }
+    }
+
     courses.push({
       name: pluginKey,
       dir: installNormalized,
       lessonsRoot: lessonsResolved,
       probes,
+      paths,
     });
   }
 
