@@ -9,6 +9,7 @@ import { runSetPersonalization } from './tools/setPersonalization.js';
 import { runNextSection } from './tools/nextSection.js';
 import { runVerifySection } from './tools/verifySection.js';
 import { runAdvanceArtifact } from './tools/advanceArtifact.js';
+import { runConfigureWorkspace } from './tools/configureWorkspace.js';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
 
@@ -143,6 +144,30 @@ export function registerTools(server: McpServer): void {
       };
     },
   );
+
+  server.tool(
+    'configureWorkspace',
+    'Read or update the user-level ACC config at ~/.acc/config.json. With no args, returns the current effective config (defaults filled in) and whether it came from disk. With `workspace_root` and/or `course_paths`, deep-merges the patch and persists atomically. Used by the conductor for the one-time first-run prompt and for on-demand path overrides.',
+    {
+      workspace_root: z
+        .string()
+        .optional()
+        .describe('New workspace_root (e.g. "~/workspace"). Replaces the existing value.'),
+      course_paths: z
+        .record(z.record(z.string()))
+        .optional()
+        .describe('Per-course path overrides: { "<plugin-key>": { "<path-id>": "<override>" } }. Deep-merged into the existing block.'),
+    },
+    async ({ workspace_root, course_paths }) => {
+      const args: { workspace_root?: string; course_paths?: Record<string, Record<string, string>> } = {};
+      if (workspace_root !== undefined) args.workspace_root = workspace_root;
+      if (course_paths !== undefined) args.course_paths = course_paths;
+      const result = await runConfigureWorkspace(args);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
+      };
+    },
+  );
 }
 
 // Only start the stdio transport when this file is executed directly as a
@@ -167,7 +192,7 @@ function _isMainEntrypoint(): boolean {
 if (_isMainEntrypoint()) {
   const server = new McpServer({
     name: 'agentic-community-college',
-    version: '0.1.0',
+    version: '0.2.0',
   });
   registerTools(server);
   const transport = new StdioServerTransport();

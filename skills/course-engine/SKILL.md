@@ -35,6 +35,19 @@ If `result.ok` is `true`:
 - Render `result.description` verbatim if present (it's the lesson's `description.md` body — what the learner is about to build, prerequisites, learning outcomes).
 - If `result.workspaceCreated === true`, briefly mention the workspace was provisioned at `result.workspacePath`. If `result.workspaceArchivedTo` is set, note that an older workspace was archived because the host content changed.
 
+### 2a. First-run workspace setup
+
+If `result.firstRunSetup?.needsWorkspaceRoot === true`, the user has never picked a workspace root on this machine. Run a one-time prompt **before continuing to step 3**:
+
+- Surface `result.firstRunSetup.defaultWorkspaceRoot` (typically `~/workspace`) as the recommended default.
+- Use `AskUserQuestion` with `header: "Workspace root"`, `question: "Where should ACC put per-course project checkouts?"`, and two options:
+  - `"Use the default (~/workspace)"` (Recommended)
+  - `"Pick a custom path"` — if the user picks this, follow up in chat for the literal path; treat empty input as the default.
+- Call `configureWorkspace({ workspace_root: <chosen> })`. On `ok: true`, mention briefly that `~/.acc/config.json` was written. On `ok: false`, surface the errors and stop — the lesson can't continue without a workspace root.
+- If `result.firstRunSetup` is absent, skip this step entirely.
+
+Note: paths declared by the course (like `sandbox`) default to `<workspace_root>/<manifest-default>`. The learner can hand-edit `~/.acc/config.json` later, or invoke `configureWorkspace({ course_paths: {...} })` for per-id overrides. The conductor doesn't need to prompt for those here unless the user explicitly asks.
+
 ## 3. Prerequisites
 
 If `result.prerequisites` is a non-empty array, the lesson requires environmental checks before the learner can proceed. For each probe ID in the array, **call `runPreflightProbe({ probeId })`**.

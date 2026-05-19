@@ -1,14 +1,24 @@
 import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
-import { discoverCourses } from '../pluginsRoot.js';
+import { discoverCourses, type DiscoveredCourse } from '../pluginsRoot.js';
 import { runDynamicProbe, type DynamicProbeOptions } from '../dynamicProbes.js';
 import type { CourseProbeDecl } from '../schemas/courseProbes.js';
 import type { ProbeResult, ShellAction } from '../preflight.js';
+import { loadAccConfig, AccConfigError } from '../settings.js';
+import {
+  resolveCoursePaths,
+  substitutePathRefs,
+  envVarsFor,
+  PathRefError,
+} from '../pathResolver.js';
 
 export interface RunPreflightProbeArgs {
   probeId: string;
   remediate?: boolean;
   /** Per-probe runtime options (test seam). */
   probeOpts?: Record<string, DynamicProbeOptions>;
+  /** Override for ACC config + `${paths.<id>}` resolution. Tests redirect
+   * this to a tmp home so they can inject a synthetic `~/.acc/config.json`. */
+  homeDir?: string;
 }
 
 export interface RunPreflightProbeResult {
@@ -28,14 +38,14 @@ export interface RunPreflightProbeResult {
 
 function findProbe(probeId: string): {
   decl: CourseProbeDecl;
-  owner: string;
+  owner: DiscoveredCourse;
   collidingCourses?: string[];
 } | undefined {
   const { courses } = discoverCourses();
-  const hits: Array<{ decl: CourseProbeDecl; owner: string }> = [];
+  const hits: Array<{ decl: CourseProbeDecl; owner: DiscoveredCourse }> = [];
   for (const c of courses) {
     const decl = c.probes.find((p) => p.id === probeId);
-    if (decl) hits.push({ decl, owner: c.name });
+    if (decl) hits.push({ decl, owner: c });
   }
   if (hits.length === 0) return undefined;
   const winner = hits[0];
@@ -43,19 +53,21 @@ function findProbe(probeId: string): {
   return {
     decl: winner.decl,
     owner: winner.owner,
-    collidingCourses: hits.slice(1).map((h) => h.owner),
+    collidingCourses: hits.slice(1).map((h) => h.owner.name),
   };
 }
 
 async function runRemediation(
   action: ShellAction,
   timeoutMs: number,
+  env: NodeJS.ProcessEnv,
 ): Promise<{ status: number | null; logs: string[] }> {
   return new Promise((resolve) => {
     const logs: string[] = [];
     const child = nodeSpawn('sh', ['-c', action.command], {
       cwd: action.cwd,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env,
     } satisfies SpawnOptions);
 
     const timer = setTimeout(() => {
@@ -86,9 +98,30 @@ async function runRemediation(
 }
 
 /**
+ * Substitute `${paths.<id>}` tokens in the probe decl + remediation. Caller
+ * passes an already-loaded `AccConfig` to keep this transformer pure.
+ */
+function substituteProbeWithConfig(
+  decl: CourseProbeDecl,
+  owner: DiscoveredCourse,
+  config: Awaited<ReturnType<typeof loadAccConfig>>,
+  homeDir?: string,
+): { decl: CourseProbeDecl; pathEnv: Record<string, string> } {
+  const resolved = resolveCoursePaths(owner.name, owner.paths, config, homeDir);
+  const rewritten = substitutePathRefs(decl, resolved);
+  return { decl: rewritten, pathEnv: envVarsFor(resolved) };
+}
+
+/**
  * Run a single declarative probe by id. Probe ids are resolved against the
  * union of every enabled course plugin's declared probes — ACC ships no
  * domain probes itself.
+ *
+ * Before the probe runs, any `${paths.<id>}` tokens in its params or
+ * remediation are substituted with absolute paths resolved via the two-tier
+ * settings model (`~/.acc/config.json` + `accContent.paths`). The remediation
+ * child process inherits `ACC_PATHS_*` env vars so shell commands can also
+ * reference the resolved path by name.
  *
  * When `remediate: true` and the probe fails with a `ShellAction`, execute
  * the action and re-run the probe. Returns the post-remediation result plus
@@ -97,7 +130,7 @@ async function runRemediation(
 export async function runPreflightProbe(
   args: RunPreflightProbeArgs,
 ): Promise<RunPreflightProbeResult> {
-  const { probeId, remediate = false, probeOpts = {} } = args;
+  const { probeId, remediate = false, probeOpts = {}, homeDir } = args;
 
   const hit = findProbe(probeId);
   if (!hit) {
@@ -107,13 +140,47 @@ export async function runPreflightProbe(
     };
   }
 
+  // Load the user-level config + apply `${paths.<id>}` substitution. Empty
+  // `paths` short-circuits both the config read and the substitution walk.
+  let workingDecl: CourseProbeDecl = hit.decl;
+  let pathEnv: Record<string, string> = {};
+  if (hit.owner.paths.length > 0) {
+    let config;
+    try {
+      config = await loadAccConfig(homeDir);
+    } catch (err) {
+      if (err instanceof AccConfigError) {
+        return {
+          pass: false,
+          ownerCourse: hit.owner.name,
+          message: `ACC config invalid (${err.kind}): ${err.message}`,
+        };
+      }
+      throw err;
+    }
+    try {
+      const subst = substituteProbeWithConfig(hit.decl, hit.owner, config, homeDir);
+      workingDecl = subst.decl;
+      pathEnv = subst.pathEnv;
+    } catch (err) {
+      if (err instanceof PathRefError) {
+        return {
+          pass: false,
+          ownerCourse: hit.owner.name,
+          message: `Probe '${probeId}' references an undeclared path: ${err.message}`,
+        };
+      }
+      throw err;
+    }
+  }
+
   let probeResult: ProbeResult;
   try {
-    probeResult = await runDynamicProbe(hit.decl, probeOpts[probeId] ?? {});
+    probeResult = await runDynamicProbe(workingDecl, probeOpts[probeId] ?? {});
   } catch (err) {
     return {
       pass: false,
-      ownerCourse: hit.owner,
+      ownerCourse: hit.owner.name,
       message: `Probe '${probeId}' threw an unexpected error: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
@@ -122,7 +189,7 @@ export async function runPreflightProbe(
     const out: RunPreflightProbeResult = {
       pass: probeResult.pass,
       message: probeResult.message,
-      ownerCourse: hit.owner,
+      ownerCourse: hit.owner.name,
     };
     if (probeResult.action) out.action = probeResult.action;
     if (hit.collidingCourses) out.collidingCourses = hit.collidingCourses;
@@ -131,11 +198,12 @@ export async function runPreflightProbe(
 
   // remediate=true and the probe failed with a shell action: run it.
   const timeoutMs = probeResult.action.timeoutMs ?? 60_000;
-  const { status, logs } = await runRemediation(probeResult.action, timeoutMs);
+  const remediationEnv: NodeJS.ProcessEnv = { ...process.env, ...pathEnv };
+  const { status, logs } = await runRemediation(probeResult.action, timeoutMs, remediationEnv);
   if (status !== 0) {
     return {
       pass: false,
-      ownerCourse: hit.owner,
+      ownerCourse: hit.owner.name,
       message: `Remediation for '${probeId}' failed (exit ${status}). See logs.`,
       logs,
     };
@@ -144,11 +212,11 @@ export async function runPreflightProbe(
   // Re-run the probe after remediation.
   let after: ProbeResult;
   try {
-    after = await runDynamicProbe(hit.decl, probeOpts[probeId] ?? {});
+    after = await runDynamicProbe(workingDecl, probeOpts[probeId] ?? {});
   } catch (err) {
     return {
       pass: false,
-      ownerCourse: hit.owner,
+      ownerCourse: hit.owner.name,
       message: `Probe '${probeId}' threw on post-remediation re-run: ${err instanceof Error ? err.message : String(err)}`,
       logs,
     };
@@ -159,7 +227,7 @@ export async function runPreflightProbe(
     message: after.pass
       ? `${after.message} (after remediation)`
       : `Remediation ran but probe still fails: ${after.message}`,
-    ownerCourse: hit.owner,
+    ownerCourse: hit.owner.name,
     logs,
   };
   if (hit.collidingCourses) out.collidingCourses = hit.collidingCourses;
