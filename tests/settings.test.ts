@@ -142,4 +142,41 @@ describe('settings — mergeAccConfig', () => {
       }),
     ).toThrow(AccConfigError);
   });
+
+  it("rejects '..' segments in workspace_root and overrides", () => {
+    const cur = defaultAccConfig();
+    expect(() =>
+      mergeAccConfig(cur, { workspace_root: '~/dev/../etc' }),
+    ).toThrow(AccConfigError);
+    expect(() =>
+      mergeAccConfig(cur, {
+        course_paths: { 'a@1': { sandbox: 'evil/../path' } },
+      }),
+    ).toThrow(AccConfigError);
+  });
+});
+
+describe('settings — load rejects malicious paths', () => {
+  it("rejects loaded config with '..' in workspace_root", async () => {
+    const p = configFilePath(tmpHome);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(
+      p,
+      JSON.stringify({ workspace_root: '~/dev/../etc', course_paths: {} }),
+    );
+    await expect(loadAccConfig(tmpHome)).rejects.toBeInstanceOf(AccConfigError);
+  });
+
+  it("rejects loaded config with '..' in a course_paths value", async () => {
+    const p = configFilePath(tmpHome);
+    fs.mkdirSync(path.dirname(p), { recursive: true });
+    fs.writeFileSync(
+      p,
+      JSON.stringify({
+        workspace_root: '~/dev',
+        course_paths: { 'a@1': { sandbox: '../escape' } },
+      }),
+    );
+    await expect(loadAccConfig(tmpHome)).rejects.toBeInstanceOf(AccConfigError);
+  });
 });

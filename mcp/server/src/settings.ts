@@ -133,6 +133,7 @@ export function mergeAccConfig(
         `workspace_root must be a non-empty string`,
       );
     }
+    assertNoDotDot(patch.workspace_root, 'workspace_root');
     next.workspace_root = patch.workspace_root;
   }
   for (const [plugin, ids] of Object.entries(current.course_paths)) {
@@ -164,12 +165,30 @@ export function mergeAccConfig(
             `course_paths['${plugin}']['${id}'] must be a non-empty string`,
           );
         }
+        assertNoDotDot(val, `course_paths['${plugin}']['${id}']`);
         merged[id] = val;
       }
       next.course_paths[plugin] = merged;
     }
   }
   return next;
+}
+
+/**
+ * Reject `..` segments anywhere in a learner-supplied path value. Mirrors the
+ * same rule the `accContent.paths` schema enforces on course-author defaults
+ * — keeps the override surface from sliding around `workspace_root` with a
+ * `../../etc` value (defense-in-depth on top of resolveCoursePaths's
+ * workspaceRoot anchoring). Empty string is also rejected by the caller.
+ */
+function assertNoDotDot(value: string, where: string): void {
+  const segments = value.replace(/\\/g, '/').split('/');
+  if (segments.includes('..')) {
+    throw new AccConfigError(
+      'invalid-shape',
+      `${where}: '${value}' must not contain '..' segments`,
+    );
+  }
 }
 
 function validateAccConfigShape(parsed: unknown, where: string): AccConfig {
@@ -184,6 +203,7 @@ function validateAccConfigShape(parsed: unknown, where: string): AccConfig {
       `${where}: workspace_root must be a non-empty string`,
     );
   }
+  assertNoDotDot(obj['workspace_root'] as string, `${where}: workspace_root`);
 
   const coursePaths: Record<string, Record<string, string>> = {};
   if (obj['course_paths'] !== undefined) {
@@ -214,6 +234,7 @@ function validateAccConfigShape(parsed: unknown, where: string): AccConfig {
             `${where}: course_paths['${pluginKey}']['${id}'] must be a non-empty string`,
           );
         }
+        assertNoDotDot(val, `${where}: course_paths['${pluginKey}']['${id}']`);
         innerMap[id] = val;
       }
       coursePaths[pluginKey] = innerMap;

@@ -78,6 +78,36 @@ describe('resolveCoursePaths — precedence chain', () => {
     const r = resolveCoursePaths('c@x', [], cfg(), HOME);
     expect(r).toEqual({});
   });
+
+  it('anchors a bare-relative override under workspace_root (not process.cwd)', () => {
+    // Regression for the high-severity reviewer finding: `expandHome`
+    // returns non-tilde inputs unchanged; without an explicit anchor,
+    // path.resolve would fall back to process.cwd(). The fix resolves
+    // overrides under workspace_root just like `default` values.
+    const r = resolveCoursePaths(
+      'c@x',
+      [{ id: 'sandbox', default: 'd' }],
+      cfg({
+        workspace_root: '~/dev',
+        course_paths: { 'c@x': { sandbox: 'custom-sb' } },
+      }),
+      HOME,
+    );
+    expect(r.sandbox).toBe(path.join(HOME, 'dev', 'custom-sb'));
+  });
+
+  it('keeps absolute overrides absolute regardless of workspace_root', () => {
+    const r = resolveCoursePaths(
+      'c@x',
+      [{ id: 'sb', default: 'd' }],
+      cfg({
+        workspace_root: '~/dev',
+        course_paths: { 'c@x': { sb: '/srv/abs' } },
+      }),
+      HOME,
+    );
+    expect(r.sb).toBe('/srv/abs');
+  });
 });
 
 describe('substitutePathRefs', () => {

@@ -58,7 +58,11 @@ export function resolveCoursePaths(
   for (const decl of manifestPaths) {
     const override = overrides[decl.id];
     if (typeof override === 'string' && override.length > 0) {
-      out[decl.id] = path.resolve(expandHome(override, homeDir));
+      // Resolve under workspaceRoot — mirrors the `default` path's anchoring
+      // so a learner who hand-edits `sandbox: "sb"` gets `workspace_root/sb`
+      // rather than `process.cwd()/sb`. Absolute / `~/`-prefixed overrides
+      // bypass workspaceRoot via path.resolve's absolute-path semantics.
+      out[decl.id] = path.resolve(workspaceRoot, expandHome(override, homeDir));
     } else {
       out[decl.id] = path.resolve(workspaceRoot, decl.default);
     }
