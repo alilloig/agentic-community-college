@@ -1,5 +1,7 @@
 # Agentic Community College (ACC)
 
+![Agentic Community College](./banner.png)
+
 > Coding lessons that run inside Claude Code — and ship verified work.
 
 ACC is a Claude Code plugin that turns a session into an interactive coding tutor. Install the framework, install (or write) a **course plugin**, and the conductor walks you through reference-seeded lessons with real test gates and an evolving HTML artifact.
