@@ -25,7 +25,7 @@ ACC is a Claude Code plugin that turns a session into an interactive coding tuto
 ## Links
 
 - **Landing page** — <https://alilloig.github.io/agentic-community-college/>
-- **Reference course** — [`acc-deepbook-course`](https://github.com/alilloig/acc-deepbook-course)
+- **Reference course** — [`acc-deepbook-course`](https://github.com/contract-hero/acc-deepbook-course)
 - **Marketplace** — [`contract-hero/plugin-marketplace`](https://github.com/contract-hero/plugin-marketplace)
 - **Companion toolkit** — `toolkit@contract-hero` (optional; powers per-section diagrams + post-lesson publishing)
 
