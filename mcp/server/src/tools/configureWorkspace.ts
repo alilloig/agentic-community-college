@@ -67,12 +67,13 @@ export async function runConfigureWorkspace(
     return { ok: true, config: current, fromDisk, saved: false };
   }
 
+  const patch: { workspace_root?: string; course_paths?: Record<string, Record<string, string>> } = {};
+  if (workspace_root !== undefined) patch.workspace_root = workspace_root;
+  if (course_paths !== undefined) patch.course_paths = course_paths;
+
   let next: AccConfig;
   try {
-    next = mergeAccConfig(current, {
-      ...(workspace_root !== undefined ? { workspace_root } : {}),
-      ...(course_paths !== undefined ? { course_paths } : {}),
-    });
+    next = mergeAccConfig(current, patch);
   } catch (err) {
     if (err instanceof AccConfigError) {
       return { ok: false, errors: [`acc-config-${err.kind}: ${err.message}`] };

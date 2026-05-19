@@ -258,15 +258,15 @@ export function discoverCourses(opts: DiscoverCoursesOptions = {}): CourseDiscov
     if (seenLessonsRoots.has(lessonsResolved)) continue;
     seenLessonsRoots.add(lessonsResolved);
 
+    const accContentObj = accContent as Record<string, unknown>;
+
     // Optional accContent.paths — declarative named filesystem paths the
     // course's probes / reference apps reference via `${paths.<id>}`. Parsed
     // before probes so we can cross-reference them in the same pass.
     let paths: ContentPathDecl[] = [];
     let pathsValid = true;
-    if ((accContent as Record<string, unknown>)['paths'] !== undefined) {
-      const pathsValidation = validateContentPaths(
-        (accContent as Record<string, unknown>)['paths'],
-      );
+    if (accContentObj['paths'] !== undefined) {
+      const pathsValidation = validateContentPaths(accContentObj['paths']);
       if (!pathsValidation.ok) {
         warnings.push({
           kind: 'course-plugin-paths-invalid',
@@ -282,10 +282,8 @@ export function discoverCourses(opts: DiscoverCoursesOptions = {}): CourseDiscov
 
     // Optional accContent.probes — declarative prerequisite checks.
     let probes: CourseProbeDecl[] = [];
-    if ((accContent as Record<string, unknown>)['probes'] !== undefined) {
-      const probesValidation = validateCourseProbes(
-        (accContent as Record<string, unknown>)['probes'],
-      );
+    if (accContentObj['probes'] !== undefined) {
+      const probesValidation = validateCourseProbes(accContentObj['probes']);
       if (!probesValidation.ok) {
         warnings.push({
           kind: 'course-plugin-probes-invalid',

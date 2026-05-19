@@ -4,7 +4,13 @@ import { probeOutputStyle } from '../outputStyle.js';
 import { discoverCourses } from '../pluginsRoot.js';
 import { loadLessonBySlug } from '../registry.js';
 import { prepareWorkspace, WorkspacePrepareError } from '../workspace.js';
-import { accConfigExists, loadAccConfig, AccConfigError, defaultAccConfig } from '../settings.js';
+import {
+  accConfigExists,
+  loadAccConfig,
+  AccConfigError,
+  defaultAccConfig,
+  type AccConfig,
+} from '../settings.js';
 import { resolveCoursePaths, envVarsFor } from '../pathResolver.js';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
@@ -61,16 +67,10 @@ export async function runSelectLesson({
     return { ok: false, errors: ['output-style-disabled'] };
   }
 
-  // Schema-mismatch / corrupt states bubble up; the learner is expected to
-  // re-run selectLesson which mints fresh v4 state.
-  const stateResult = await loadState(projectRoot);
-  if (stateResult.kind === 'corrupt') {
-    // Surface the diagnostic but proceed to mint fresh state (the corruption
-    // archive flow already preserved the original bytes).
-  } else if (stateResult.kind === 'schema-mismatch') {
-    // v3 (or older) state on disk → ignore it and mint fresh v4. Old file
-    // is left untouched on disk so the user can recover if they want.
-  }
+  // Load state purely for its side effect — corrupt JSON triggers the archive
+  // flow inside `loadState`, and a schema-mismatch leaves the old file on disk
+  // so the user can recover. Either way we proceed to mint fresh v4 state.
+  await loadState(projectRoot);
 
   const discovery = discoverCourses();
   if (discovery.courses.length === 0) {
@@ -94,7 +94,7 @@ export async function runSelectLesson({
   // the install command sees the env on first creation.
   const owningCourse = discovery.courses.find((c) => c.name === info.course_name);
   const configFromDisk = await accConfigExists(homeDir);
-  let accConfig;
+  let accConfig: AccConfig;
   try {
     accConfig = await loadAccConfig(homeDir);
   } catch (err) {
