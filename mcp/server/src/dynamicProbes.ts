@@ -62,6 +62,7 @@ function defaultSpawn(): SpawnFn {
     const r = nodeSpawnSync(cmd, args, {
       encoding: 'utf8',
       timeout: opts?.timeout,
+      env: opts?.env ?? process.env,
     });
     return {
       status: r.status,
@@ -144,8 +145,13 @@ async function probeShellExitZero(
 ): Promise<ProbeResult> {
   const spawnFn = opts.spawn ?? defaultSpawn();
   const timeoutMs = decl.params.timeout_ms ?? DEFAULT_SHELL_TIMEOUT_MS;
+  // Merge any caller-supplied env (e.g. `ACC_PATHS_*` from runPreflightProbe)
+  // so a probe command reading `$ACC_PATHS_SANDBOX` sees the same value the
+  // matching remediation does.
+  const spawnOpts: { timeout: number; env?: NodeJS.ProcessEnv } = { timeout: timeoutMs };
+  if (opts.env !== undefined) spawnOpts.env = { ...process.env, ...opts.env };
   try {
-    const result = spawnFn(decl.params.command, decl.params.args ?? [], { timeout: timeoutMs });
+    const result = spawnFn(decl.params.command, decl.params.args ?? [], spawnOpts);
     if (result.status !== 0) {
       const r: ProbeResult = {
         pass: false,

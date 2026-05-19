@@ -3,7 +3,7 @@ import {
   validateContentPaths,
   validateProbePathRefs,
   collectProbePathRefs,
-  PATHS_REF_RE,
+  pathsRefRegex,
 } from '../mcp/server/src/schemas/contentPaths.js';
 import type { CourseProbeDecl } from '../mcp/server/src/schemas/courseProbes.js';
 
@@ -77,6 +77,18 @@ describe('validateContentPaths — per-decl', () => {
     const r = validateContentPaths([]);
     expect(r.ok).toBe(true);
     if (r.ok) expect(r.value).toEqual([]);
+  });
+
+  it('rejects path ids that collide on env-var-name normalization', () => {
+    // Both '-' and '_' normalize to '_' when building ACC_PATHS_* env vars,
+    // so 'sand-box' and 'sand_box' would silently collapse onto a single
+    // env-var name and the runtime would surface a non-deterministic value.
+    const r = validateContentPaths([
+      { id: 'sand-box', default: 'a' },
+      { id: 'sand_box', default: 'b' },
+    ]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/ACC_PATHS_SAND_BOX/);
   });
 });
 
@@ -171,10 +183,18 @@ describe('validateProbePathRefs — cross-reference', () => {
   });
 });
 
-describe('PATHS_REF_RE', () => {
+describe('pathsRefRegex factory', () => {
   it('matches the canonical token shape', () => {
-    PATHS_REF_RE.lastIndex = 0;
-    const m = '${paths.sandbox}/sub'.matchAll(PATHS_REF_RE);
+    const m = '${paths.sandbox}/sub'.matchAll(pathsRefRegex());
     expect([...m].map((x) => x[1])).toEqual(['sandbox']);
+  });
+
+  it('returns a fresh RegExp each call (no shared lastIndex)', () => {
+    const a = pathsRefRegex();
+    const b = pathsRefRegex();
+    expect(a).not.toBe(b);
+    a.exec('${paths.sandbox}');
+    expect(a.lastIndex).toBeGreaterThan(0);
+    expect(b.lastIndex).toBe(0);
   });
 });

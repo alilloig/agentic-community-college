@@ -14,7 +14,7 @@
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ContentPathDecl } from './schemas/contentPaths.js';
-import { PATHS_REF_RE } from './schemas/contentPaths.js';
+import { pathsRefRegex } from './schemas/contentPaths.js';
 import type { AccConfig } from './settings.js';
 
 /** Resolved id → absolute path map. */
@@ -95,9 +95,9 @@ function walk(v: unknown, paths: ResolvedPaths): unknown {
 }
 
 function substituteString(s: string, paths: ResolvedPaths): string {
-  // Reset lastIndex defensively in case the caller holds the regex elsewhere.
-  PATHS_REF_RE.lastIndex = 0;
-  return s.replace(PATHS_REF_RE, (token, id: string) => {
+  // Fresh regex per call — the factory prevents `lastIndex` state from
+  // leaking between concurrent substitutions.
+  return s.replace(pathsRefRegex(), (token, id: string) => {
     if (Object.prototype.hasOwnProperty.call(paths, id)) {
       return paths[id] as string;
     }
@@ -141,7 +141,16 @@ export function envVarsFor(paths: ResolvedPaths): Record<string, string> {
 export function envFileContents(envBag: Record<string, string>): string {
   const lines: string[] = [];
   for (const [k, v] of Object.entries(envBag)) {
-    const escaped = v.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    // Escape every shell-active char that would re-expand inside a
+    // double-quoted bash string: backslash, double-quote, dollar, backtick.
+    // Without `$` and `` ` `` escaping, `source .env.acc-paths` would expand
+    // `$VAR` and `$(cmd)` substrings in the value, diverging from what
+    // Node's process.env sees (raw bytes).
+    const escaped = v
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"')
+      .replace(/\$/g, '\\$')
+      .replace(/`/g, '\\`');
     lines.push(`${k}="${escaped}"`);
   }
   return lines.join('\n') + (lines.length > 0 ? '\n' : '');

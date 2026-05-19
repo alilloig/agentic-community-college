@@ -177,6 +177,31 @@ describe('envVarsFor', () => {
   });
 });
 
+describe('AC-6.3 cross-substitution invariant', () => {
+  // The `${paths.<id>}` channel (this module) and the `{{ key }}` personalization
+  // channel (`personalization.substitutePromptOnly`) are deliberately disjoint.
+  // A future refactor that unifies them would silently break AC-6.3 — these
+  // tests fail loud if that happens.
+  it('substitutePathRefs leaves {{ ... }} tokens untouched', () => {
+    const out = substitutePathRefs(
+      'cd ${paths.sandbox} && echo {{ poll_interval_ms }}',
+      { sandbox: '/abs' },
+    );
+    expect(out).toBe('cd /abs && echo {{ poll_interval_ms }}');
+  });
+
+  it('substitutePromptOnly leaves ${paths.<id>} tokens untouched', async () => {
+    const { substitutePromptOnly } = await import(
+      '../mcp/server/src/personalization.js'
+    );
+    const out = substitutePromptOnly(
+      'cd ${paths.sandbox} && echo {{ poll_interval_ms }}',
+      { poll_interval_ms: 5000 },
+    );
+    expect(out).toBe('cd ${paths.sandbox} && echo 5000');
+  });
+});
+
 describe('envFileContents', () => {
   it('emits KEY="value" lines with a trailing newline', () => {
     const out = envFileContents({ ACC_PATHS_SANDBOX: '/abs' });
@@ -186,6 +211,14 @@ describe('envFileContents', () => {
   it('escapes embedded double quotes and backslashes', () => {
     const out = envFileContents({ K: 'has "quotes" and \\back' });
     expect(out).toBe('K="has \\"quotes\\" and \\\\back"\n');
+  });
+
+  it('escapes `$` and backtick so bash `source` does not re-expand them', () => {
+    // Inside a double-quoted bash string, `$VAR` and `$(cmd)` and `` `cmd` ``
+    // all expand. Without escaping, a resolved path containing `$` would
+    // diverge from what Node's process.env sees.
+    const out = envFileContents({ K: '/tmp/$USER/`whoami`' });
+    expect(out).toBe('K="/tmp/\\$USER/\\`whoami\\`"\n');
   });
 
   it('returns empty string for empty env', () => {

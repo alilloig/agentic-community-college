@@ -113,14 +113,27 @@ export async function saveAccConfig(
   });
 }
 
+/** Patch shape accepted by `mergeAccConfig` / `configureWorkspace`.
+ *
+ * Within `course_paths`, a `null` leaf at the id level deletes that id; a
+ * `null` at the plugin-key level deletes the entire block. Anything else is
+ * a normal string upsert. This is the only programmatic delete affordance —
+ * the JSON file is hand-editable, but the public tool API stays surface-
+ * complete (no need to drop to fs edits to revert a typo).
+ */
+export type AccConfigPatch = {
+  workspace_root?: string;
+  course_paths?: Record<string, Record<string, string | null> | null>;
+};
+
 /**
  * Deep-merge update. Used by `configureWorkspace` so a partial update doesn't
  * blow away unrelated per-course overrides. `course_paths` is merged at two
- * levels: plugin key, then path id.
+ * levels: plugin key, then path id. `null` sentinels delete (see AccConfigPatch).
  */
 export function mergeAccConfig(
   current: AccConfig,
-  patch: { workspace_root?: string; course_paths?: Record<string, Record<string, string>> },
+  patch: AccConfigPatch,
 ): AccConfig {
   const next: AccConfig = {
     workspace_root: current.workspace_root,
@@ -151,24 +164,36 @@ export function mergeAccConfig(
       );
     }
     for (const [plugin, ids] of Object.entries(patch.course_paths)) {
-      if (typeof ids !== 'object' || ids === null || Array.isArray(ids)) {
+      if (ids === null) {
+        // null at the plugin-key level deletes the entire block.
+        delete next.course_paths[plugin];
+        continue;
+      }
+      if (typeof ids !== 'object' || Array.isArray(ids)) {
         throw new AccConfigError(
           'invalid-shape',
-          `course_paths['${plugin}'] must be an object`,
+          `course_paths['${plugin}'] must be an object or null`,
         );
       }
       const merged: Record<string, string> = { ...(next.course_paths[plugin] ?? {}) };
       for (const [id, val] of Object.entries(ids)) {
+        if (val === null) {
+          // null leaf deletes just that id.
+          delete merged[id];
+          continue;
+        }
         if (typeof val !== 'string' || val.length === 0) {
           throw new AccConfigError(
             'invalid-shape',
-            `course_paths['${plugin}']['${id}'] must be a non-empty string`,
+            `course_paths['${plugin}']['${id}'] must be a non-empty string or null`,
           );
         }
         assertNoDotDot(val, `course_paths['${plugin}']['${id}']`);
         merged[id] = val;
       }
-      next.course_paths[plugin] = merged;
+      // Drop empty plugin blocks so the persisted JSON stays clean.
+      if (Object.keys(merged).length === 0) delete next.course_paths[plugin];
+      else next.course_paths[plugin] = merged;
     }
   }
   return next;

@@ -133,14 +133,47 @@ describe('settings — mergeAccConfig', () => {
     expect(() =>
       mergeAccConfig(cur, { workspace_root: '' }),
     ).toThrow(AccConfigError);
+    // `null` is now valid (it's the delete sentinel); arrays must still
+    // be rejected.
     expect(() =>
-      mergeAccConfig(cur, { course_paths: { 'a@1': null as unknown as Record<string, string> } }),
+      mergeAccConfig(cur, {
+        course_paths: { 'a@1': [] as unknown as Record<string, string> },
+      }),
     ).toThrow(AccConfigError);
     expect(() =>
       mergeAccConfig(cur, {
         course_paths: { 'a@1': { x: '' } },
       }),
     ).toThrow(AccConfigError);
+  });
+
+  it("deletes a single id when its value is null", () => {
+    const cur = {
+      workspace_root: '~/w',
+      course_paths: { 'a@1': { x: '/x', y: '/y' } },
+    };
+    const next = mergeAccConfig(cur, {
+      course_paths: { 'a@1': { x: null } },
+    });
+    expect(next.course_paths['a@1']).toEqual({ y: '/y' });
+  });
+
+  it("drops the plugin block when its value is null", () => {
+    const cur = {
+      workspace_root: '~/w',
+      course_paths: { 'a@1': { x: '/x' }, 'b@1': { y: '/y' } },
+    };
+    const next = mergeAccConfig(cur, {
+      course_paths: { 'a@1': null },
+    });
+    expect(next.course_paths['a@1']).toBeUndefined();
+    expect(next.course_paths['b@1']).toEqual({ y: '/y' });
+  });
+
+  it("drops an emptied plugin block after nulling every id", () => {
+    const cur = { workspace_root: '~/w', course_paths: { 'a@1': { x: '/x' } } };
+    const next = mergeAccConfig(cur, { course_paths: { 'a@1': { x: null } } });
+    expect(next.course_paths['a@1']).toBeUndefined();
   });
 
   it("rejects '..' segments in workspace_root and overrides", () => {

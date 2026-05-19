@@ -8,7 +8,6 @@ import {
   accConfigExists,
   loadAccConfig,
   AccConfigError,
-  defaultAccConfig,
   type AccConfig,
 } from '../settings.js';
 import { resolveCoursePaths, envVarsFor } from '../pathResolver.js';
@@ -101,8 +100,14 @@ export async function runSelectLesson({
     if (err instanceof AccConfigError) {
       return { ok: false, errors: [`acc-config-${err.kind}: ${err.message}`] };
     }
-    // Unexpected I/O — keep the defaults so we don't trap the learner.
-    accConfig = defaultAccConfig();
+    // Any other throw shouldn't happen — loadAccConfig wraps every read/parse
+    // failure in AccConfigError. Surface as a hard error rather than silently
+    // falling back to defaults (which would hide the broken config from the
+    // learner and ignore their override).
+    return {
+      ok: false,
+      errors: [`acc-config-unexpected: ${err instanceof Error ? err.message : String(err)}`],
+    };
   }
   const resolvedPaths = owningCourse && owningCourse.paths.length > 0
     ? resolveCoursePaths(owningCourse.name, owningCourse.paths, accConfig, homeDir)

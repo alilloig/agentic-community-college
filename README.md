@@ -68,7 +68,7 @@ Courses can declare named filesystem paths their probes and reference apps need 
 - `workspace_root` is the parent directory ACC assumes for project checkouts. Set once on first run via the `configureWorkspace` MCP tool (the conductor prompts you the first time you start a lesson; the default is `~/workspace`).
 - `course_paths.<plugin-key>.<path-id>` is optional per-course override. Missing entries derive from `${workspace_root}/${manifest-default}`.
 
-You can hand-edit the file or call `configureWorkspace` from any ACC-enabled session. Partial updates are deep-merged — patching one id won't blow away unrelated entries.
+You can hand-edit the file or call `configureWorkspace` from any ACC-enabled session. Partial updates are deep-merged — patching one id won't blow away unrelated entries. To delete an entry, pass `null` for the value (`{ course_paths: { "x@1": { "sandbox": null } } }` removes just that id; `{ course_paths: { "x@1": null } }` removes the entire plugin block). Override values must be either absolute paths or `~/`-prefixed; bare relative values are anchored under `workspace_root`. Embedded `..` segments are rejected at load time.
 
 ### For course authors — `accContent.paths`
 

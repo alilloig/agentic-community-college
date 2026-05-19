@@ -274,17 +274,27 @@ export async function saveWorkspaceMeta(workspacePath: string, meta: WorkspaceMe
 
 /**
  * Persist the resolved path env to `.env.acc-paths` inside the workspace.
- * No-op when `env` is undefined / empty — keeps existing fixture tests
- * (which don't pass `pathEnv`) working without leaving stray files. Atomic
- * write so an interrupted save can't clobber a valid file.
+ * When `env` is undefined / empty, best-effort unlinks any pre-existing
+ * file so a stale env from a previous prep (where the course declared
+ * paths and has since removed them) doesn't keep masking the removal.
+ * Atomic write on the populated path.
  */
 async function writePathEnvFile(
   workspacePath: string,
   env: Record<string, string> | undefined,
 ): Promise<void> {
-  if (!env || Object.keys(env).length === 0) return;
-  await fsPromises.mkdir(workspacePath, { recursive: true });
   const target = path.join(workspacePath, PATH_ENV_FILE);
+  if (!env || Object.keys(env).length === 0) {
+    // Best-effort unlink — ignore ENOENT (file already absent is fine);
+    // surface any other error to the caller via re-throw.
+    try {
+      await fsPromises.unlink(target);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    }
+    return;
+  }
+  await fsPromises.mkdir(workspacePath, { recursive: true });
   await atomicWriteFile(target, envFileContents(env), {
     mode: 0o600,
     tmpPrefix: '.env.acc-paths.tmp',

@@ -85,6 +85,26 @@ describe('prepareWorkspace — pathEnv injection', () => {
     expect(fs.existsSync(envFile)).toBe(false);
   });
 
+  it('unlinks a stale .env.acc-paths when reused with an empty pathEnv', async () => {
+    const seed = seedFixture();
+    seeds.push(seed);
+
+    // First prep with paths declared.
+    const first = await prepareWorkspace('paths-lesson', seed.lessonDir, lessonWith(), {
+      basePath: seed.basePath,
+      pathEnv: { ACC_PATHS_SANDBOX: '/abs/sb' },
+    });
+    expect(fs.existsSync(path.join(first.workspacePath, '.env.acc-paths'))).toBe(true);
+
+    // Second prep — course removed its paths block (empty pathEnv).
+    const second = await prepareWorkspace('paths-lesson', seed.lessonDir, lessonWith(), {
+      basePath: seed.basePath,
+      pathEnv: {},
+    });
+    expect(second.created).toBe(false);
+    expect(fs.existsSync(path.join(second.workspacePath, '.env.acc-paths'))).toBe(false);
+  });
+
   it('re-writes .env.acc-paths even when reusing an existing workspace', async () => {
     const seed = seedFixture();
     seeds.push(seed);

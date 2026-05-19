@@ -154,12 +154,17 @@ export function registerTools(server: McpServer): void {
         .optional()
         .describe('New workspace_root (e.g. "~/workspace"). Replaces the existing value.'),
       course_paths: z
-        .record(z.record(z.string()))
+        .record(
+          z.union([
+            z.null(),
+            z.record(z.union([z.string(), z.null()])),
+          ]),
+        )
         .optional()
-        .describe('Per-course path overrides: { "<plugin-key>": { "<path-id>": "<override>" } }. Deep-merged into the existing block.'),
+        .describe('Per-course path overrides: { "<plugin-key>": { "<path-id>": "<override>" } }. Deep-merged. Pass `null` for a path-id to delete it; pass `null` for a plugin-key to delete its whole block.'),
     },
     async ({ workspace_root, course_paths }) => {
-      const args: { workspace_root?: string; course_paths?: Record<string, Record<string, string>> } = {};
+      const args: { workspace_root?: string; course_paths?: Record<string, Record<string, string | null> | null> } = {};
       if (workspace_root !== undefined) args.workspace_root = workspace_root;
       if (course_paths !== undefined) args.course_paths = course_paths;
       const result = await runConfigureWorkspace(args);

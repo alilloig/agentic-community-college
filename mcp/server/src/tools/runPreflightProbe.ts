@@ -1,5 +1,9 @@
 import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
-import { discoverCourses, type DiscoveredCourse } from '../pluginsRoot.js';
+import {
+  discoverCourses,
+  type DiscoveredCourse,
+  type CourseDiscoveryWarning,
+} from '../pluginsRoot.js';
 import { runDynamicProbe, type DynamicProbeOptions } from '../dynamicProbes.js';
 import type { CourseProbeDecl } from '../schemas/courseProbes.js';
 import type { ProbeResult, ShellAction } from '../preflight.js';
@@ -34,14 +38,20 @@ export interface RunPreflightProbeResult {
    * are shadowed. This signal lets the conductor and tests catch silent
    * cross-course collisions. */
   collidingCourses?: string[];
+  /** Discovery warnings relevant to this probe lookup — populated when the
+   * probe id is unknown and a course's probes were defensively dropped
+   * (e.g. a `${paths.<id>}` cross-reference failed). Lets the conductor
+   * surface the root cause instead of just "Unknown probe id". */
+  discoveryWarnings?: Array<{ kind: string; message: string; pluginKey?: string }>;
 }
 
 function findProbe(probeId: string): {
   decl: CourseProbeDecl;
   owner: DiscoveredCourse;
   collidingCourses?: string[];
+  warnings: CourseDiscoveryWarning[];
 } | undefined {
-  const { courses } = discoverCourses();
+  const { courses, warnings } = discoverCourses();
   const hits: Array<{ decl: CourseProbeDecl; owner: DiscoveredCourse }> = [];
   for (const c of courses) {
     const decl = c.probes.find((p) => p.id === probeId);
@@ -49,12 +59,27 @@ function findProbe(probeId: string): {
   }
   if (hits.length === 0) return undefined;
   const winner = hits[0];
-  if (hits.length === 1) return winner;
+  if (hits.length === 1) return { ...winner, warnings };
   return {
     decl: winner.decl,
     owner: winner.owner,
     collidingCourses: hits.slice(1).map((h) => h.owner.name),
+    warnings,
   };
+}
+
+/** Pull out the warnings that explain why a probe with the given id might
+ * be missing — chiefly `course-plugin-paths-invalid` (which defensively drops
+ * a whole course's probes when a `${paths.<id>}` reference is unresolved) and
+ * `course-plugin-probes-invalid`. Used to enrich the "Unknown probe id"
+ * diagnostic with the root cause instead of the symptom. */
+function relevantWarningsForUnknownProbe(): CourseDiscoveryWarning[] {
+  const { warnings } = discoverCourses();
+  return warnings.filter(
+    (w) =>
+      w.kind === 'course-plugin-paths-invalid' ||
+      w.kind === 'course-plugin-probes-invalid',
+  );
 }
 
 async function runRemediation(
@@ -134,10 +159,27 @@ export async function runPreflightProbe(
 
   const hit = findProbe(probeId);
   if (!hit) {
-    return {
+    // Enrich the "unknown probe" error with discovery warnings — typically a
+    // `course-plugin-paths-invalid` that explains why the probe got dropped.
+    const relevant = relevantWarningsForUnknownProbe();
+    const tail = relevant.length > 0
+      ? ` Note: course-plugin discovery surfaced ${relevant.length} warning(s) that may explain why — ${relevant.map((w) => `[${w.pluginKey ?? '?'}] ${w.message}`).join('; ')}`
+      : '';
+    const out: RunPreflightProbeResult = {
       pass: false,
-      message: `Unknown probe id: '${probeId}'. No enabled course plugin declares it under accContent.probes.`,
+      message: `Unknown probe id: '${probeId}'. No enabled course plugin declares it under accContent.probes.${tail}`,
     };
+    if (relevant.length > 0) {
+      out.discoveryWarnings = relevant.map((w) => {
+        const entry: { kind: string; message: string; pluginKey?: string } = {
+          kind: w.kind,
+          message: w.message,
+        };
+        if (w.pluginKey !== undefined) entry.pluginKey = w.pluginKey;
+        return entry;
+      });
+    }
+    return out;
   }
 
   // Load the user-level config + apply `${paths.<id>}` substitution. Empty
@@ -174,9 +216,18 @@ export async function runPreflightProbe(
     }
   }
 
+  // Merge pathEnv into the probe's spawn env — symmetry with remediation, so
+  // a `shell-exit-zero` probe reading `$ACC_PATHS_SANDBOX` sees the same
+  // value the matching remediation does.
+  const baseProbeOpts = probeOpts[probeId] ?? {};
+  const mergedProbeOpts: DynamicProbeOptions = {
+    ...baseProbeOpts,
+    env: { ...(baseProbeOpts.env ?? {}), ...pathEnv },
+  };
+
   let probeResult: ProbeResult;
   try {
-    probeResult = await runDynamicProbe(workingDecl, probeOpts[probeId] ?? {});
+    probeResult = await runDynamicProbe(workingDecl, mergedProbeOpts);
   } catch (err) {
     return {
       pass: false,
@@ -209,10 +260,11 @@ export async function runPreflightProbe(
     };
   }
 
-  // Re-run the probe after remediation.
+  // Re-run the probe after remediation. Re-use the merged env so the
+  // post-remediation probe sees the same ACC_PATHS_* values.
   let after: ProbeResult;
   try {
-    after = await runDynamicProbe(workingDecl, probeOpts[probeId] ?? {});
+    after = await runDynamicProbe(workingDecl, mergedProbeOpts);
   } catch (err) {
     return {
       pass: false,
