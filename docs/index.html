@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agentic Community College — coding lessons that run inside Claude Code</title>
+  <meta name="description" content="A Claude Code plugin that turns a session into an interactive coding tutor. Bring your own course; ACC runs the lesson, verifies the work, and ships an HTML artifact.">
+  <style>
+    :root {
+      --bg: #fafaf7;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --border: #e5e7eb;
+      --accent: #0f4c75;
+      --accent-soft: #e6eef4;
+      --code-bg: #f1f5f9;
+      --warn: #92400e;
+      --warn-soft: #fef3c7;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 17px;
+      line-height: 1.55;
+      color: var(--text);
+      background: var(--bg);
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+    header.site {
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    header.site .wrap {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 16px;
+      padding-bottom: 16px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      color: var(--text);
+      text-decoration: none;
+      letter-spacing: -0.01em;
+    }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      flex: none;
+    }
+    nav.site-nav a {
+      color: var(--muted);
+      text-decoration: none;
+      margin-left: 20px;
+      font-size: 15px;
+    }
+    nav.site-nav a:hover { color: var(--accent); }
+
+    section { padding: 56px 0; }
+    section + section { border-top: 1px solid var(--border); }
+
+    .hero {
+      padding-top: 72px;
+      padding-bottom: 48px;
+    }
+    .eyebrow {
+      display: inline-block;
+      font-size: 12px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 18px;
+    }
+    h1 {
+      font-size: clamp(28px, 4.2vw, 42px);
+      line-height: 1.15;
+      letter-spacing: -0.02em;
+      margin: 0 0 18px 0;
+      max-width: 22ch;
+    }
+    h1 em {
+      font-style: normal;
+      color: var(--accent);
+    }
+    .lede {
+      font-size: 19px;
+      color: var(--muted);
+      max-width: 62ch;
+      margin: 0 0 28px 0;
+    }
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+    }
+    .btn {
+      display: inline-block;
+      padding: 10px 18px;
+      border-radius: 6px;
+      font-weight: 500;
+      font-size: 15px;
+      text-decoration: none;
+      border: 1px solid transparent;
+      transition: background 120ms ease, border-color 120ms ease;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover { background: #0c3d5d; }
+    .btn-secondary {
+      background: transparent;
+      color: var(--accent);
+      border-color: var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent); }
+
+    h2 {
+      font-size: clamp(22px, 2.4vw, 28px);
+      letter-spacing: -0.015em;
+      margin: 0 0 12px 0;
+    }
+    h2 + p.section-lede {
+      color: var(--muted);
+      margin: 0 0 32px 0;
+      max-width: 60ch;
+    }
+
+    figure.diagram {
+      margin: 0 auto;
+      max-width: 720px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 24px;
+    }
+    figure.diagram svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    figcaption {
+      color: var(--muted);
+      font-size: 14px;
+      margin-top: 16px;
+      text-align: center;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 22px;
+    }
+    .card h3 {
+      margin: 0 0 6px 0;
+      font-size: 17px;
+      letter-spacing: -0.01em;
+    }
+    .card .tag {
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+      display: block;
+      margin-bottom: 8px;
+    }
+    .card p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .modes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .mode {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 22px;
+    }
+    .mode h3 {
+      margin: 0 0 4px 0;
+      font-size: 17px;
+    }
+    .mode .for {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 14px;
+    }
+    .mode ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--text);
+      font-size: 15px;
+    }
+    .mode ul li { margin: 4px 0; }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      overflow-x: auto;
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      margin: 0 0 16px 0;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+    p code, li code {
+      background: var(--code-bg);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 0.92em;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: 32px 1fr;
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+    .step .n {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-weight: 600;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .step h3 {
+      margin: 2px 0 4px 0;
+      font-size: 16px;
+    }
+    .step p {
+      margin: 0 0 6px 0;
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    aside.note {
+      background: var(--warn-soft);
+      border-left: 3px solid var(--warn);
+      color: var(--text);
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 14px;
+      margin: 16px 0 0 0;
+    }
+    aside.note strong { color: var(--warn); }
+
+    footer.site {
+      border-top: 1px solid var(--border);
+      padding: 28px 0 40px 0;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    footer.site .wrap {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: space-between;
+      align-items: center;
+    }
+    footer.site a { color: var(--accent); text-decoration: none; }
+    footer.site a:hover { text-decoration: underline; }
+
+    @media (max-width: 720px) {
+      section { padding: 40px 0; }
+      .hero { padding-top: 48px; }
+      .cards { grid-template-columns: 1fr; }
+      .modes { grid-template-columns: 1fr; }
+      nav.site-nav a { margin-left: 12px; font-size: 14px; }
+      nav.site-nav a:first-child { margin-left: 0; }
+      .lede { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="site">
+    <div class="wrap">
+      <a class="brand" href="#top">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <rect x="2" y="2" width="28" height="28" rx="6" fill="#0f4c75"/>
+          <path d="M9 22 L16 8 L23 22 M11.5 17 L20.5 17" stroke="#fff" stroke-width="2.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Agentic Community College</span>
+      </a>
+      <nav class="site-nav" aria-label="Page contents">
+        <a href="#how">How it works</a>
+        <a href="#pieces">Pieces</a>
+        <a href="#start">Quick start</a>
+        <a href="https://github.com/alilloig/agentic-community-college">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero" id="top">
+      <div class="wrap">
+        <span class="eyebrow">Claude Code Plugin</span>
+        <h1>Coding lessons that <em>run inside</em> Claude Code &mdash; and ship verified work.</h1>
+        <p class="lede">
+          ACC turns a Claude Code session into an interactive coding tutor. You install the framework,
+          you install (or write) a <strong>course plugin</strong>, and the conductor walks the learner
+          section by section &mdash; advancing an HTML artifact, gating on real test runs, and adapting
+          to the chosen output mode.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#start">Get started</a>
+          <a class="btn btn-secondary" href="https://github.com/alilloig/agentic-community-college">View on GitHub</a>
+          <a class="btn btn-secondary" href="https://github.com/alilloig/acc-deepbook-course">First course</a>
+        </div>
+      </div>
+    </section>
+
+    <section id="how">
+      <div class="wrap">
+        <h2>How it works</h2>
+        <p class="section-lede">
+          ACC is the engine. Courses are content plugins. Lessons are the experience &mdash; reference-seeded,
+          test-verified, and packaged as a shareable HTML artifact at the end.
+        </p>
+        <figure class="diagram">
+          <svg viewBox="0 0 680 360" role="img" aria-label="Architecture: Claude Code loads ACC, which discovers course plugins and runs lessons that verify and publish an HTML artifact.">
+            <defs>
+              <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+              </marker>
+            </defs>
+
+            <!-- Layer labels -->
+            <text x="20" y="32" font-size="11" letter-spacing="1.5" fill="#475569" font-family="system-ui">RUNTIME</text>
+            <text x="20" y="132" font-size="11" letter-spacing="1.5" fill="#475569" font-family="system-ui">FRAMEWORK</text>
+            <text x="20" y="232" font-size="11" letter-spacing="1.5" fill="#475569" font-family="system-ui">CONTENT</text>
+            <text x="20" y="332" font-size="11" letter-spacing="1.5" fill="#475569" font-family="system-ui">OUTPUT</text>
+
+            <!-- Runtime: Claude Code -->
+            <rect x="240" y="14" width="200" height="44" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+            <text x="340" y="42" font-size="14" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Claude Code session</text>
+
+            <!-- Arrow down -->
+            <line x1="340" y1="62" x2="340" y2="92" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+            <!-- Framework: ACC plugin -->
+            <rect x="170" y="96" width="340" height="78" rx="8" fill="#e6eef4" stroke="#0f4c75"/>
+            <text x="340" y="120" font-size="14" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f4c75">ACC framework plugin</text>
+            <text x="340" y="142" font-size="12" text-anchor="middle" font-family="system-ui" fill="#475569">MCP server &middot; course-conductor agent</text>
+            <text x="340" y="158" font-size="12" text-anchor="middle" font-family="system-ui" fill="#475569">authoring &amp; runtime skills</text>
+
+            <!-- Arrow down -->
+            <line x1="340" y1="178" x2="340" y2="200" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
+            <text x="352" y="194" font-size="11" font-family="system-ui" fill="#475569">discovers</text>
+
+            <!-- Content: Course plugins -->
+            <rect x="60" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+            <text x="150" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Course plugin A</text>
+            <text x="150" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">lessons &middot; probes &middot; paths</text>
+            <text x="150" y="260" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">(e.g. acc-deepbook-course)</text>
+
+            <rect x="250" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-dasharray="4 3"/>
+            <text x="340" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Course plugin B</text>
+            <text x="340" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">bring your own domain</text>
+
+            <rect x="440" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-dasharray="4 3"/>
+            <text x="530" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Course plugin C</text>
+            <text x="530" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">scaffold via /create-course</text>
+
+            <!-- Arrow down from course A -->
+            <line x1="150" y1="272" x2="150" y2="298" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
+
+            <!-- Output: Lesson run -->
+            <rect x="60" y="302" width="560" height="50" rx="8" fill="#ffffff" stroke="#0f4c75"/>
+            <text x="340" y="324" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Lesson run: sections &rarr; verify (vitest) &rarr; HTML artifact</text>
+            <text x="340" y="342" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">reference codebase seeded into <tspan font-family="ui-monospace,Menlo,monospace">~/.acc/workspaces/&lt;slug&gt;/</tspan></text>
+          </svg>
+          <figcaption>One framework plugin, many course plugins, any number of lessons.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="pieces">
+      <div class="wrap">
+        <h2>Three pieces, clearly separated</h2>
+        <p class="section-lede">
+          ACC ships no lesson content of its own. That separation is the design &mdash; the framework
+          stays small and reusable; courses own their domain.
+        </p>
+        <div class="cards">
+          <article class="card">
+            <span class="tag">Framework</span>
+            <h3>ACC</h3>
+            <p>This plugin. MCP server, conductor agent, authoring skills, the four probe interpreters, and the workspace lifecycle. Domain-agnostic.</p>
+          </article>
+          <article class="card">
+            <span class="tag">Content</span>
+            <h3>Course plugin</h3>
+            <p>A separate Claude Code plugin that declares <code>accContent</code> &mdash; lessons, prerequisite probes, configurable paths. ACC discovers it at runtime.</p>
+          </article>
+          <article class="card">
+            <span class="tag">Experience</span>
+            <h3>Lesson</h3>
+            <p>An end-to-end run: pick output mode, walk the section sequence, advance the HTML artifact, pass a final test gate, publish the result.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="modes">
+      <div class="wrap">
+        <h2>Two output modes &mdash; one lesson</h2>
+        <p class="section-lede">
+          The learner picks how active they want to be. The same lesson runs either way; only the
+          conductor's behaviour changes.
+        </p>
+        <div class="modes">
+          <article class="mode">
+            <h3>Learning mode</h3>
+            <p class="for">For learners who want to write the code.</p>
+            <ul>
+              <li>Conductor leaves <code>TODO</code> markers at the key moments of each section</li>
+              <li>Learner fills in the implementation; the conductor reviews</li>
+              <li>Verification still has to pass before the section advances</li>
+            </ul>
+          </article>
+          <article class="mode">
+            <h3>Explanatory mode</h3>
+            <p class="for">For learners who want a guided demo.</p>
+            <ul>
+              <li>Conductor implements and narrates each step</li>
+              <li>Learner watches, asks questions, runs the final result</li>
+              <li>Same artifact, same verification gates</li>
+            </ul>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="start">
+      <div class="wrap">
+        <h2>Quick start</h2>
+        <p class="section-lede">
+          ACC is a Claude Code plugin. Install it, install a course alongside it, and start a lesson.
+        </p>
+
+        <div class="step">
+          <div class="n">1</div>
+          <div>
+            <h3>Install ACC</h3>
+            <p>From any Claude Code session:</p>
+            <pre><code>/plugin marketplace add alilloig/contract-hero-marketplace
+/plugin install agentic-community-college</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">2</div>
+          <div>
+            <h3>Install a course</h3>
+            <p>Any plugin that declares <code>accContent</code> works. The reference course is <a href="https://github.com/alilloig/acc-deepbook-course">acc-deepbook-course</a>.</p>
+            <pre><code>/plugin install acc-deepbook-course</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">3</div>
+          <div>
+            <h3>Start a lesson</h3>
+            <p>Run the course's start command. ACC discovers the catalog, you pick a lesson, the conductor takes over.</p>
+            <pre><code>/acc-deepbook-course:start</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="n">4</div>
+          <div>
+            <h3>Author your own</h3>
+            <p>To teach a new domain, scaffold a course plugin and add lessons:</p>
+            <pre><code>/agentic-community-college:create-course
+/agentic-community-college:create-lesson</code></pre>
+          </div>
+        </div>
+
+        <aside class="note">
+          <strong>Note.</strong> ACC pairs with the <a href="https://github.com/alilloig/contract-hero-marketplace"><code>toolkit@contract-hero</code></a> plugin
+          for HTML-deliverable skills (per-section diagrams, post-lesson publishing). It's optional &mdash; lessons still
+          run without it, just without the visual extras.
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      <div>
+        Agentic Community College &middot; open framework
+      </div>
+      <div>
+        <a href="https://github.com/alilloig/agentic-community-college">Source</a> &middot;
+        <a href="https://github.com/alilloig/acc-deepbook-course">Reference course</a> &middot;
+        <a href="https://github.com/alilloig/contract-hero-marketplace">Marketplace</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
