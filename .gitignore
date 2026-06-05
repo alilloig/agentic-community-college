@@ -27,3 +27,6 @@ coverage/
 
 # Multi-agent PR review scratch (ship-reviewed-pr skill workspace)
 .claude-pr-review/
+
+# Claude Code runtime artifacts (scheduled-task locks, etc.)
+.claude/scheduled_tasks.lock
