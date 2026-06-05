@@ -13,9 +13,16 @@ ACC is a Claude Code plugin that turns a session into an interactive coding tuto
 ```text
 /plugin marketplace add contract-hero/plugin-marketplace
 /plugin install agentic-community-college@contract-hero
-/plugin install acc-deepbook-course@contract-hero    # the reference course
+/plugin install acc-deepbook-course@contract-hero    # a course (see below)
 /acc-deepbook-course:start                            # start a lesson
 ```
+
+## Courses
+
+Two course plugins are published in the marketplace today — install either one alongside ACC:
+
+- **[`acc-deepbook-course`](https://github.com/contract-hero/acc-deepbook-course)** — 4 hands-on Sui DeepBook lessons (place & manage orders, swap over the CLOB, flash-loan arbitrage, market-maker bot). Auto-bootstraps the `deepbook-sandbox` stack. Start with `/acc-deepbook-course:start`.
+- **[`acc-evm-wal`](https://github.com/contract-hero/acc-evm-wal)** — 6 Walrus × EVM lessons (anchor blob IDs on-chain, Walrus Sites, ENS resolver, DAO proposals, verifiable manifest client, quilt-backed ERC-721). Foundry + pnpm. Start with `/acc-evm-wal:start`.
 
 ## Write your own course
 
@@ -27,7 +34,7 @@ ACC is a Claude Code plugin that turns a session into an interactive coding tuto
 ## Links
 
 - **Landing page** — <https://contract-hero.github.io/agentic-community-college/>
-- **Reference course** — [`acc-deepbook-course`](https://github.com/contract-hero/acc-deepbook-course)
+- **Courses** — [`acc-deepbook-course`](https://github.com/contract-hero/acc-deepbook-course) · [`acc-evm-wal`](https://github.com/contract-hero/acc-evm-wal)
 - **Marketplace** — [`contract-hero/plugin-marketplace`](https://github.com/contract-hero/plugin-marketplace)
 - **Companion toolkit** — `toolkit@contract-hero` (optional; powers per-section diagrams + post-lesson publishing)
 
