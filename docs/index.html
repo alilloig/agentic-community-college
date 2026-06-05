@@ -362,7 +362,7 @@
           test-verified, and packaged as a shareable HTML artifact at the end.
         </p>
         <figure class="diagram">
-          <svg viewBox="0 0 680 360" role="img" aria-label="Architecture: Claude Code loads ACC, which discovers course plugins and runs lessons that verify and publish an HTML artifact.">
+          <svg viewBox="0 0 680 360" role="img" aria-label="Architecture: Claude Code loads ACC, which discovers course plugins (acc-deepbook-course, acc-evm-wal, or your own) and runs lessons that verify (vitest or forge) and publish an HTML artifact.">
             <defs>
               <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
@@ -473,7 +473,8 @@
             <p>
               Six lessons on Walrus decentralized storage from Solidity &amp; TypeScript:
               anchor blob IDs on-chain, publish Walrus Sites, build an ENS-gated resolver,
-              back DAO proposals and a 10K-token ERC-721 with Walrus. Foundry and pnpm
+              back DAO proposals, ship a verifiable manifest client, and serve a
+              10K-token ERC-721 &mdash; all backed by Walrus. Foundry and pnpm
               lessons, gated on their test suites.
             </p>
             <p class="cmd"><code>/acc-evm-wal:start</code></p>
