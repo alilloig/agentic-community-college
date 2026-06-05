@@ -198,6 +198,12 @@
       color: var(--muted);
       font-size: 15px;
     }
+    .card a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+    .card a:hover { text-decoration: underline; }
+    .card h3 code { font-size: 0.95em; }
 
     .modes {
       display: grid;
@@ -325,6 +331,7 @@
       <nav class="site-nav" aria-label="Page contents">
         <a href="#how">How it works</a>
         <a href="#pieces">Pieces</a>
+        <a href="#courses">Courses</a>
         <a href="#start">Quick start</a>
         <a href="https://github.com/contract-hero/agentic-community-college">GitHub</a>
       </nav>
@@ -346,7 +353,7 @@
         <div class="cta-row">
           <a class="btn btn-primary" href="#start">Get started</a>
           <a class="btn btn-secondary" href="https://github.com/contract-hero/agentic-community-college">View on GitHub</a>
-          <a class="btn btn-secondary" href="https://github.com/contract-hero/acc-deepbook-course">First course</a>
+          <a class="btn btn-secondary" href="#courses">Browse courses</a>
         </div>
       </div>
     </section>
@@ -391,24 +398,26 @@
 
             <!-- Content: Course plugins -->
             <rect x="60" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-            <text x="150" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Course plugin A</text>
-            <text x="150" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">lessons &middot; probes &middot; paths</text>
-            <text x="150" y="260" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">(e.g. acc-deepbook-course)</text>
+            <text x="150" y="226" font-size="12" font-weight="600" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" fill="#0f172a">acc-deepbook-course</text>
+            <text x="150" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">4 Sui DeepBook lessons</text>
+            <text x="150" y="260" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">lessons &middot; probes &middot; paths</text>
 
-            <rect x="250" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-dasharray="4 3"/>
-            <text x="340" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Course plugin B</text>
-            <text x="340" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">bring your own domain</text>
+            <rect x="250" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+            <text x="340" y="226" font-size="12" font-weight="600" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" fill="#0f172a">acc-evm-wal</text>
+            <text x="340" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">6 Walrus &times; EVM lessons</text>
+            <text x="340" y="260" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">lessons &middot; probes</text>
 
             <rect x="440" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-dasharray="4 3"/>
-            <text x="530" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Course plugin C</text>
-            <text x="530" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">scaffold via /create-course</text>
+            <text x="530" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Your course</text>
+            <text x="530" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">scaffold via</text>
+            <text x="530" y="260" font-size="11" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" fill="#475569">/create-course</text>
 
             <!-- Arrow down from course A -->
             <line x1="150" y1="272" x2="150" y2="298" stroke="#475569" stroke-width="1.4" marker-end="url(#arrow)"/>
 
             <!-- Output: Lesson run -->
             <rect x="60" y="302" width="560" height="50" rx="8" fill="#ffffff" stroke="#0f4c75"/>
-            <text x="340" y="324" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Lesson run: sections &rarr; verify (vitest) &rarr; HTML artifact</text>
+            <text x="340" y="324" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Lesson run: sections &rarr; verify (vitest / forge) &rarr; HTML artifact</text>
             <text x="340" y="342" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">reference codebase seeded into <tspan font-family="ui-monospace,Menlo,monospace">~/.acc/workspaces/&lt;slug&gt;/</tspan></text>
           </svg>
           <figcaption>One framework plugin, many course plugins, any number of lessons.</figcaption>
@@ -438,6 +447,50 @@
             <span class="tag">Experience</span>
             <h3>Lesson</h3>
             <p>An end-to-end run: pick output mode, walk the section sequence, advance the HTML artifact, pass a final test gate, publish the result.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section id="courses">
+      <div class="wrap">
+        <h2>Courses available today</h2>
+        <p class="section-lede">
+          Two course plugins are published in the <a href="https://github.com/contract-hero/plugin-marketplace">contract-hero marketplace</a>.
+          Install either one alongside ACC and run its <code>start</code> command &mdash; or scaffold your own.
+        </p>
+        <div class="cards">
+          <article class="card">
+            <span class="tag">Sui &middot; DeepBook</span>
+            <h3><a href="https://github.com/contract-hero/acc-deepbook-course"><code>acc-deepbook-course</code></a></h3>
+            <p>
+              Four hands-on lessons building Sui DeepBook integrations end-to-end:
+              place &amp; manage orders on a <code>BalanceManager</code>, swap straight over the CLOB,
+              borrow with a <code>FlashLoan</code> hot-potato, and run a two-sided market-maker bot.
+              Auto-bootstraps the <code>deepbook-sandbox</code> stack.
+            </p>
+            <p style="margin-top:12px"><code>/acc-deepbook-course:start</code></p>
+          </article>
+          <article class="card">
+            <span class="tag">Walrus &times; EVM</span>
+            <h3><a href="https://github.com/contract-hero/acc-evm-wal"><code>acc-evm-wal</code></a></h3>
+            <p>
+              Six lessons on Walrus decentralized storage from Solidity &amp; TypeScript:
+              anchor blob IDs on-chain, publish Walrus Sites, build an ENS-gated resolver,
+              back DAO proposals and a 10K-token ERC-721 with Walrus. Foundry and pnpm
+              lessons, gated on their test suites.
+            </p>
+            <p style="margin-top:12px"><code>/acc-evm-wal:start</code></p>
+          </article>
+          <article class="card">
+            <span class="tag">Bring your own</span>
+            <h3>Your course</h3>
+            <p>
+              Any plugin that declares <code>accContent</code> is a course. Scaffold one &mdash;
+              <code>plugin.json</code>, probes, paths, and an empty lessons tree &mdash; then add
+              lessons against a reference codebase.
+            </p>
+            <p style="margin-top:12px"><code>/agentic-community-college:create-course</code></p>
           </article>
         </div>
       </div>
@@ -494,8 +547,10 @@
           <div class="n">2</div>
           <div>
             <h3>Install a course</h3>
-            <p>Any plugin that declares <code>accContent</code> works. The reference course is <a href="https://github.com/contract-hero/acc-deepbook-course">acc-deepbook-course</a>.</p>
-            <pre><code>/plugin install acc-deepbook-course@contract-hero</code></pre>
+            <p>Any plugin that declares <code>accContent</code> works. Two are published today &mdash; <a href="#courses">acc-deepbook-course and acc-evm-wal</a>:</p>
+            <pre><code>/plugin install acc-deepbook-course@contract-hero
+# &mdash; or &mdash;
+/plugin install acc-evm-wal@contract-hero</code></pre>
           </div>
         </div>
 
@@ -504,7 +559,7 @@
           <div>
             <h3>Start a lesson</h3>
             <p>Run the course's start command. ACC discovers the catalog, you pick a lesson, the conductor takes over.</p>
-            <pre><code>/acc-deepbook-course:start</code></pre>
+            <pre><code>/acc-deepbook-course:start    # or /acc-evm-wal:start</code></pre>
           </div>
         </div>
 
@@ -534,7 +589,8 @@
       </div>
       <div>
         <a href="https://github.com/contract-hero/agentic-community-college">Source</a> &middot;
-        <a href="https://github.com/contract-hero/acc-deepbook-course">Reference course</a> &middot;
+        <a href="https://github.com/contract-hero/acc-deepbook-course">acc-deepbook-course</a> &middot;
+        <a href="https://github.com/contract-hero/acc-evm-wal">acc-evm-wal</a> &middot;
         <a href="https://github.com/contract-hero/plugin-marketplace">Marketplace</a>
       </div>
     </div>
