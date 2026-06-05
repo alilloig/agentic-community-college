@@ -198,12 +198,8 @@
       color: var(--muted);
       font-size: 15px;
     }
-    .card a {
-      color: var(--accent);
-      text-decoration: none;
-    }
-    .card a:hover { text-decoration: underline; }
     .card h3 code { font-size: 0.95em; }
+    .card .cmd { margin-top: 12px; }
 
     .modes {
       display: grid;
@@ -304,8 +300,8 @@
       justify-content: space-between;
       align-items: center;
     }
-    footer.site a { color: var(--accent); text-decoration: none; }
-    footer.site a:hover { text-decoration: underline; }
+    footer.site a, .card a { color: var(--accent); text-decoration: none; }
+    footer.site a:hover, .card a:hover { text-decoration: underline; }
 
     @media (max-width: 720px) {
       section { padding: 40px 0; }
@@ -469,7 +465,7 @@
               borrow with a <code>FlashLoan</code> hot-potato, and run a two-sided market-maker bot.
               Auto-bootstraps the <code>deepbook-sandbox</code> stack.
             </p>
-            <p style="margin-top:12px"><code>/acc-deepbook-course:start</code></p>
+            <p class="cmd"><code>/acc-deepbook-course:start</code></p>
           </article>
           <article class="card">
             <span class="tag">Walrus &times; EVM</span>
@@ -480,7 +476,7 @@
               back DAO proposals and a 10K-token ERC-721 with Walrus. Foundry and pnpm
               lessons, gated on their test suites.
             </p>
-            <p style="margin-top:12px"><code>/acc-evm-wal:start</code></p>
+            <p class="cmd"><code>/acc-evm-wal:start</code></p>
           </article>
           <article class="card">
             <span class="tag">Bring your own</span>
@@ -490,7 +486,7 @@
               <code>plugin.json</code>, probes, paths, and an empty lessons tree &mdash; then add
               lessons against a reference codebase.
             </p>
-            <p style="margin-top:12px"><code>/agentic-community-college:create-course</code></p>
+            <p class="cmd"><code>/agentic-community-college:create-course</code></p>
           </article>
         </div>
       </div>
