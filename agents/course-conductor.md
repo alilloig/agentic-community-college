@@ -56,25 +56,28 @@ final_verification        // only when completed is false
 ```
 
 - `summary_artifact_path` is the absolute path of the lesson summary artifact.
-- `artifacts` maps each recorded chapter id to its artifact path. It is the source for the summary page cards.
+- `artifacts` maps each recorded chapter id to its artifact path. It is the source for the summary page cards. It also holds a `summary` key once the summary artifact is recorded. That key is not a chapter.
 - `publish_available` is true when the `toolkit@contract-hero` plugin is enabled.
 
 `verifyChapter({ projectRoot })` returns:
 
 ```
-ok, pass, output, advanced, final, done, chapter_cursor, artifact_recorded, warnings
+ok, pass, output, advanced, final, done, chapter_cursor, artifact_recorded, warnings, errors, skipped
 ```
 
+- `ok: false` means the gate did not record a result. The cause is a state save failure or a command the runner cannot parse. `errors` holds the reason.
 - `pass: true` with `advanced: true` means the cursor moved to the next chapter.
 - `final: true` means the call ran `final_verification` (the e2e), not a chapter verification.
+- `skipped: true` appears on the final gate only. It means the output reports skipped tests, so the e2e did not run against a live service. The usual cause is missing credentials.
 - `artifact_recorded: false` means no file was found at `artifact_path`. Write it and say so. It is a warning, not a failure.
 - `warnings` is a list of `{ kind, message }`. Render each one on a single line.
+- An error that starts with `Lesson state stale:` means the course changed on disk and the cursor is past the last chapter in `chapters.json`. The learner re-runs the course's start command with a restart.
 
 ## Chapter loop
 
 Repeat until `nextChapter` returns `done: true`.
 
-1. **Fetch.** Call `nextChapter({ projectRoot })`. If `ok` is false, surface the error and stop. If `done` is true, go to "Closing the lesson".
+1. **Fetch.** Call `nextChapter({ projectRoot })`. If `ok` is false, render `errors` verbatim and stop. If the first error starts with `Lesson state stale:`, tell the learner the course changed on disk and that the course's start command with a restart resets the lesson to chapter 1. If `done` is true, go to "Closing the lesson".
 
 2. **Tell.** Post one short block: "Chapter N of M: title". Then two or three lines: what gets implemented (from the "What we implement" part of `chapter.brief`), the `key_idea`, and the test files in `chapter.tests` that define done. Do not paste the whole brief.
 
@@ -82,6 +85,7 @@ Repeat until `nextChapter` returns `done: true`.
    - Read the chapter's test files (`chapter.tests`, under `workspace_path`) and the docs the brief points at (under `docs_dir`; start with `docs_dir/INDEX.md`).
    - Edit only the files in `chapter.expected_files`. Every path is relative to `workspace_path`. Never edit a file outside `workspace_path`.
    - Run the chapter's verification with Bash: `cd <workspace_path>/<verification.cwd> && <verification.command>`. The envelope already resolved `verification.cwd`. Repeat edit + run until the command exits 0.
+   - `verification.command` is one program plus its arguments, with no shell operators, so the Bash run is equivalent to the gate.
    - Stop after 5 failed attempts. Show the last output and call `AskUserQuestion` with `header`: "Stuck", `question`: "The chapter tests still fail after 5 attempts. How do you want to proceed?", options: `"Keep trying"`, `"Walk me through the failing test"`, `"Pause the lesson here"`.
    - Narrate at most one or two sentences per attempt. The artifact carries the explanation.
 
@@ -92,13 +96,14 @@ Repeat until `nextChapter` returns `done: true`.
    - Tell the learner the artifact path once, as a `file://` link.
 
 5. **Verify.** Call `verifyChapter({ projectRoot })`. This is the official gate.
+   - `ok: false`: render `errors` verbatim and stop. The gate did not record its result.
    - `pass: true`: say so in one sentence. Mention `artifact_recorded` only when it is false.
    - `pass: false`: show `output`. Call `AskUserQuestion` with `header`: "Verify failed", `question`: "How do you want to proceed?", options: `"Let me read the output, then retry"`, `"Show me what changed"`, `"Pause the lesson here"`. Never auto-retry the gate. Call `verifyChapter` again only after the learner picks retry.
 
 6. **Pause.** Call `AskUserQuestion` with `header`: "Chapter N", `question`: "Ready for the next chapter?", options: `"Continue"` (Recommended), `"I have questions about this chapter"`, `"Pause here"`.
    - "Continue": loop to step 1.
    - "I have questions": answer in chat, then ask the same question again.
-   - "Pause here": exit cleanly. Say the cursor stays at the next chapter and that the course's start command resumes the lesson.
+   - "Pause here": exit cleanly. Say the cursor stays at the next chapter, and that the course's start command resumes the lesson at that same chapter.
 
 ## Closing the lesson
 
@@ -107,11 +112,13 @@ When `nextChapter` returns `done: true`:
 - If `completed` is false and `final_verification` is present:
   1. Say the e2e gate runs now and quote `final_verification.command`.
   2. Call `verifyChapter({ projectRoot })` once. It returns `final: true`.
-  3. `pass: true`: report it. When `output` says tests were skipped for missing credentials, say that plainly: the e2e did not run against a live service, and name the variable the output mentions.
-  4. `pass: false`: show `output` and call `AskUserQuestion` with the same options as "Verify failed". Never auto-retry.
+  3. `ok: false`: render `errors` verbatim and stop. The gate did not record its result.
+  4. `pass: true` with `skipped: true`: say plainly that the e2e did not run against a live service, because the suite reports tests skipped for missing credentials. Quote the last lines of `output` and name the variable the output mentions.
+  5. `pass: true` without `skipped`: report the pass in one sentence.
+  6. `pass: false`: show `output` and call `AskUserQuestion` with the same options as "Verify failed". Never auto-retry.
 - If `completed` is true, the e2e passed in an earlier session. Skip the gate.
 
-Then write the summary artifact at `summary_artifact_path`. Follow the "Summary page" part of the conventions file. Build one chapter card per entry of the `artifacts` map, in chapter order. State the e2e status in the header: passed, skipped for credentials, or failed. Then call `verifyChapter({ projectRoot })` once more so `summary.html` gets recorded (`artifact_recorded: true`). After completion the call re-runs nothing.
+Then write the summary artifact at `summary_artifact_path`. Follow the "Summary page" part of the conventions file. Build one card per chapter id in the `artifacts` map, in chapter order; skip the `summary` key. State the e2e status in the header: passed, `skipped for credentials` when the final gate returned `skipped: true`, or failed. Then call `verifyChapter({ projectRoot })` once more so `summary.html` gets recorded (`artifact_recorded: true`). After completion the call re-runs nothing.
 
 Finally, offer publishing only when `publish_available` is true: "The lesson artifacts are in `<workspace_path>/artifacts/`. Run `/publish-html` on `summary.html` for a shareable URL." When it is false, state only the artifacts path. Never invoke `publish-html` yourself. The skill runs its own sensitivity check, and only the learner can trigger it.
 

@@ -24,6 +24,7 @@ function makeWellFormedLesson(root: string, slug: string): void {
     title: `${slug} title`,
     summary: `${slug} summary`,
     personalization_options: [],
+    workspace: { host: 'reference-app' },
   });
   writeJson(path.join(root, slug, 'chapters.json'), {
     schema_version: 2,
@@ -123,6 +124,7 @@ describe('scanCourses', () => {
       summary: 'old',
       personalization_options: [],
       build_command: 'pnpm build',
+      workspace: { host: 'reference-app', files: [] },
     });
     writeJson(path.join(lessonsRoot, '01-old', 'sections.json'), { schema_version: 1, sections: [] });
     const course: DiscoveredCourse = { name: 'legacy@local', dir: lessonsRoot, lessonsRoot, probes: [], paths: [] };
@@ -131,5 +133,17 @@ describe('scanCourses', () => {
     const w = result.warnings.find((x) => x.kind === 'missing-chapters-json');
     expect(w?.message).toMatch(/chapters\.json/);
     expect(w?.message).toMatch(/v0\.2/);
+  });
+
+  it('reports malformed and invalid chapters.json with their own kinds', async () => {
+    const lessonsRoot = makeTempRoot('acc-course-chapters-');
+    makeWellFormedLesson(lessonsRoot, '01-ok');
+    fs.writeFileSync(path.join(lessonsRoot, '01-ok', 'chapters.json'), '{ not json', 'utf8');
+    makeWellFormedLesson(lessonsRoot, '02-bad');
+    writeJson(path.join(lessonsRoot, '02-bad', 'chapters.json'), { schema_version: 2, chapters: [] });
+    const course: DiscoveredCourse = { name: 'c@local', dir: lessonsRoot, lessonsRoot, probes: [], paths: [] };
+    const result = await scanCourses([course]);
+    expect(result.lessons).toHaveLength(0);
+    expect(result.warnings.map((w) => w.kind).sort()).toEqual(['invalid-chapters-json', 'malformed-chapters-json']);
   });
 });

@@ -10,6 +10,7 @@
 //   3. Optional `docs` names the lesson-relative directory that holds the
 //      Phase 0 documentation snapshot.
 //
+// `workspace` is required: every v0.3 lesson runs inside a seeded workspace.
 // Unknown fields are ignored. Path safety: every relative-path field goes
 // through `pathSafety.isSafeRelPath`, which rejects leading slashes and `..`
 // segments.
@@ -60,7 +61,7 @@ export interface LessonData {
   prerequisites?: string[];
   /** Lesson-relative directory holding the Phase 0 docs snapshot. */
   docs?: string;
-  workspace?: WorkspaceConfig;
+  workspace: WorkspaceConfig;
 }
 
 function isInteger(n: unknown): n is number {
@@ -194,9 +195,14 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     docs = obj['docs'] as string;
   }
 
-  let workspace: WorkspaceConfig | undefined;
-  if (obj['workspace'] !== undefined) {
-    if (typeof obj['workspace'] !== 'object' || obj['workspace'] === null) {
+  // v0.3 lessons always run inside a seeded workspace: the verification
+  // command and the artifacts have nowhere else to go.
+  if (obj['workspace'] === undefined) {
+    return { ok: false, error: 'workspace is required (every v0.3 lesson runs inside a seeded workspace)' };
+  }
+  let workspace: WorkspaceConfig;
+  {
+    if (typeof obj['workspace'] !== 'object' || obj['workspace'] === null || Array.isArray(obj['workspace'])) {
       return { ok: false, error: 'workspace must be an object' };
     }
     const w = obj['workspace'] as Record<string, unknown>;
@@ -280,10 +286,10 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     title: obj['title'] as string,
     summary: obj['summary'] as string,
     personalization_options: obj['personalization_options'] as string[],
+    workspace,
   };
   if (personalization_ranges !== undefined) result.personalization_ranges = personalization_ranges;
   if (prerequisites !== undefined) result.prerequisites = prerequisites;
   if (docs !== undefined) result.docs = docs;
-  if (workspace !== undefined) result.workspace = workspace;
   return { ok: true, value: result };
 }

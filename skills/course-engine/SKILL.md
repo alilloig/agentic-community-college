@@ -30,7 +30,7 @@ Render:
   - `"Yes, set Concise (Recommended)"`
   - `"No, keep my current style"`
 
-  On yes, call `setOutputStyle({ style: "Concise" })`. Tell the learner the setting is written to `~/.claude/settings.json`, and that `/output-style Concise` switches the current session immediately. On no, continue.
+  On yes, call `setOutputStyle({ style: "Concise" })`. Tell the learner the setting is written to `~/.claude/settings.json`, and that `/output-style Concise` switches the current session immediately. On `ok: false`, surface `errors` verbatim, say the style was not changed, and continue. On no, continue.
 
 The check is advisory. No tool refuses to run because of the active style.
 
@@ -45,7 +45,9 @@ If `result.ok` is false, surface `result.errors` verbatim and stop.
 If `result.ok` is true:
 
 - Render `result.description` verbatim when present. It is the lesson's `description.md`: what the learner is about to build, prerequisites, time.
-- If `result.workspaceCreated === true`, say the workspace was seeded at `result.workspacePath` with the scaffold and the tests, without the solution files listed in `result.workspaceStrippedFiles`. If `result.workspaceArchivedTo` is set, say an older workspace was archived because the host content changed.
+- If `result.workspaceCreated === true`, say the workspace was seeded at `result.workspacePath` with the scaffold and the tests, without the solution files listed in `result.workspaceStrippedFiles`.
+- If `result.workspaceArchivedTo` is set, say the host content changed, so an older workspace was archived and the lesson starts fresh at chapter 1.
+- Render `result.warnings` when present, one line per `{ kind, message }`. A `state-corrupt` warning means the previous `state.json` was unreadable. Name its `archivedTo` path when the warning carries one.
 
 ### 3a. First-run workspace setup
 
@@ -60,6 +62,20 @@ If `result.firstRunSetup?.needsWorkspaceRoot === true`, the user has never picke
 - If `result.firstRunSetup` is absent, skip this step.
 
 Paths declared by the course default to `<workspace_root>/<manifest-default>`. The learner can edit `~/.acc/config.json` later, or call `configureWorkspace({ course_paths: {...} })` for per-id overrides. Do not prompt for those unless the user asks.
+
+### 3b. Resume or start over
+
+`result.resumed` is true when state already held this lesson, the lesson is not complete, and the workspace was reused. The recorded artifacts are kept.
+
+Only when `result.resumed` is true:
+
+- Say the lesson resumes at chapter `result.chapter_cursor + 1`. `chapter_cursor` is 0-based.
+- Say `selectLesson({ projectRoot, slug, restart: true })` starts the lesson over at chapter 1.
+- Call `AskUserQuestion` with `header`: "Resume", `question`: "This lesson is already in progress. Resume or start over?", options:
+  - `"Resume at chapter N"` (Recommended): continue with this `result`.
+  - `"Start over"`: call `selectLesson({ projectRoot, slug, restart: true })` once and use that `result` for the rest of the session.
+
+When `result.resumed` is absent or false, ask nothing. The lesson starts at chapter 1.
 
 ## 4. Prerequisites
 
@@ -78,6 +94,8 @@ If `result.prerequisites` is absent or empty, skip this step.
 If `selectLesson` returned a `personalizationPrompts` array, walk it: ask the user for each value, or accept the default. Collect the values into one object and call `setPersonalization({ projectRoot, values })`.
 
 If the lesson has no personalization options, call `setPersonalization({ projectRoot, values: {} })` to lock in the defaults.
+
+Check `result.ok`. On `ok: false`, surface `result.errors` verbatim and ask the learner for the values again. Do not go to step 6 until `setPersonalization` returns `ok: true`.
 
 ## 6. Hand off to the conductor
 

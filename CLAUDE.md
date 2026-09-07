@@ -51,7 +51,7 @@ lessons/<slug>/
 ├── description.md       what the learner will build, why, prerequisites, time
 ├── docs/                Phase 0 snapshot: curated reference docs (markdown) + INDEX.md
 ├── chapters.json        ordered chapters, per-chapter verification, final e2e gate
-├── chapters/NN-<id>.md  chapter brief: what gets implemented, which tests define done, notes
+├── chapters/NN-<name>.md chapter brief; NN is the position, <name> is the chapter id without its cNN- prefix
 ├── reference-app/       complete working solution INCLUDING every test (unit + e2e)
 └── validation.json      result of the authoring-time learner pass
 ```
@@ -77,6 +77,7 @@ lessons/<slug>/
 }
 ```
 
+- `workspace` is required. Every chapter-loop envelope carries `workspace_path`, and artifacts always live at `<workspace_path>/artifacts/`.
 - `workspace.host` is copied whole into the workspace. Then every `solution_files` entry is **deleted** from the copy. Then `files[]` starters (`{ starter, path }`) are copied in. The learner's workspace therefore holds scaffold + tests, never the solution.
 - `docs` is optional. When present it must be a lesson-relative directory; `nextChapter` returns its absolute path as `docs_dir`.
 - `build_command`, `test_command`, and `artifact` from v0.2 are gone. Verification lives in `chapters.json`.
@@ -102,11 +103,12 @@ lessons/<slug>/
 ```
 
 - Every chapter carries its own mandatory `verification`. Modes: `compile`, `test-suite`. Pass = exit 0.
+- `verification.command` is split on whitespace and run **without a shell**: one program plus its arguments. No `&&`, `||`, `|`, `;`, `>`, `<`, backticks, environment prefixes (`VAR=x cmd`), or single quotes. The schema rejects shell operators, and a whitespace-only command.
 - `tests` lists the workspace-relative test files that define the chapter (informational: the conductor reads them before implementing and lists them in the artifact).
 - `key_idea` is the one concept the chapter artifact must center on.
 - `final_verification` is the e2e gate that runs once after the last chapter passes. Lessons whose e2e needs credentials skip those tests in-suite with a clear message; a skipped e2e still exits 0.
 
-### Chapter brief (`chapters/NN-<id>.md`)
+### Chapter brief (`chapters/NN-<name>.md`)
 
 Short markdown with three parts: **What we implement** (learner-facing, 3–6 lines), **Done when** (the test names and what each asserts), **Implementation notes** (for the agent: which docs file to read, pitfalls, constraints such as "do not touch package.json").
 
@@ -114,7 +116,7 @@ Short markdown with three parts: **What we implement** (learner-facing, 3–6 li
 
 1. The course's `/<course>:start` command invokes the `course-engine` skill with a course filter.
 2. `start` → catalog + `outputStyle` status. If the active style is not `Concise`, the skill asks the learner and, on yes, calls `setOutputStyle`.
-3. Learner picks a lesson → `selectLesson` (mints v5 state, seeds the workspace) → `runPreflightProbe` for each prerequisite → `setPersonalization` (defaults when the lesson has none).
+3. Learner picks a lesson → `selectLesson` (mints v5 state, seeds the workspace; resumes an in-progress lesson at its `chapter_cursor` unless `restart: true`) → `runPreflightProbe` for each prerequisite → `setPersonalization` (defaults when the lesson has none).
 4. Hand-off to the `course-conductor` agent. Per chapter:
    1. `nextChapter` → brief, key idea, expected files, tests, resolved verification (`cwd` always set), `docs_dir`, `workspace_path`, `artifact_path`, `artifact_nav` (prev/next filenames for the footer links).
    2. **Tell** — a short "Chapter N of M — title: here is what we implement and which tests define done".
@@ -130,11 +132,11 @@ Short markdown with three parts: **What we implement** (learner-facing, 3–6 li
 |---|---|
 | `start` | Catalog across enabled courses (`chapter_count` per lesson) + `outputStyle: { active, recommended: "Concise", ok }`. Never runs probes. |
 | `runPreflightProbe` | Runs one declared probe by id, optional remediation. Unchanged. |
-| `selectLesson` | Mints v5 state, seeds the workspace (host − solution_files + starters), returns description, prerequisites, personalization prompts, `workspaceStrippedFiles`, first-run setup. |
+| `selectLesson` | Mints v5 state, seeds the workspace (host − solution_files + starters), returns description, prerequisites, personalization prompts, `workspaceStrippedFiles`, first-run setup. Resumes instead of resetting when state already holds the same unfinished lesson and the workspace was reused: `resumed: true` plus the 0-based `chapter_cursor`, recorded artifacts kept. `restart: true` resets to chapter 1. A recreated workspace always starts fresh and says so with `workspaceArchivedTo`. A corrupt previous state arrives in `warnings` as `{ kind: 'state-corrupt', message, archivedTo? }`. |
 | `setPersonalization` | Validates + persists personalization values. `{}` accepts defaults. |
 | `setOutputStyle` | Writes `outputStyle` into `~/.claude/settings.json` (only `Concise` is accepted). Returns the previous value. |
-| `nextChapter` | Chapter envelope (see runtime flow) while chapters remain. Done envelope (`done: true`, `summary_artifact_path`, `artifacts` map, `publish_available`) once the cursor is past the last chapter: with `final_verification` while the e2e has not run, with `completed: true` after it passed. |
-| `verifyChapter` | Runs the current chapter's verification, or `final_verification` when the cursor is past the last chapter. On pass: advances the cursor (or marks `completed_at`), records the artifact path if the file exists. After completion a re-entrant call re-runs nothing and records `summary.html` once it exists. |
+| `nextChapter` | Chapter envelope (see runtime flow) while chapters remain. Done envelope (`done: true`, `summary_artifact_path`, `artifacts` map, `publish_available`) once the cursor is past the last chapter: with `final_verification` while the e2e has not run, with `completed: true` after it passed. Returns `ok: false` with an error that starts `Lesson state stale:` when `chapter_cursor` is past the number of chapters in `chapters.json`. |
+| `verifyChapter` | Runs the current chapter's verification, or `final_verification` when the cursor is past the last chapter. On pass: advances the cursor (or marks `completed_at`), records the artifact path if the file exists. After completion a re-entrant call re-runs nothing and records `summary.html` once it exists. On the final gate only, `skipped: true` reports that the output holds skipped tests, so the e2e did not run against a live service (usually missing credentials). `ok: false` with `errors` means the gate recorded no result: a state save failure, an unparseable command, or the same `Lesson state stale:` error. |
 | `configureWorkspace` | Read/write `~/.acc/config.json`. Unchanged. |
 
 Retired: `setOutputMode`, `advanceArtifact`, `nextSection`, `verifySection`.
@@ -149,7 +151,7 @@ interface State {
   chapter_cursor: number;                        // 0-based; === chapters.length means "e2e pending or done"
   history: HistoryEntry[];
   artifacts: Record<string, string>;             // chapter id → absolute artifact path (+ "summary")
-  workspace_path?: string;
+  workspace_path: string;                        // required; artifacts live at <workspace_path>/artifacts/
   test_status?: { pass: boolean; output?: string; ts?: string; final?: boolean };
   completed_at?: string;                         // set when final_verification passed
 }
@@ -216,7 +218,7 @@ State lives at `<projectRoot>/.acc/state.json`. Older versions surface as `schem
 9. **`start` never runs preflight probes.** Probes only run via `runPreflightProbe`, invoked by the course-engine after `selectLesson`.
 10. **ACC ships zero domain probes.** Every probe is declared by a course plugin's `plugin.json`. A new probe kind requires a runtime change in ACC.
 11. **`runPreflightProbe` resolves probe IDs against the merged registry.** Collisions: first-found wins with a discovery warning. Unknown IDs surface as a descriptive error.
-12. **Artifacts are written by the conductor, recorded by `verifyChapter`.** The MCP never generates HTML. `verifyChapter` only checks that the conventional file exists and stores its path; a missing artifact is a warning, not a failure.
+12. **Artifacts are written by the conductor, recorded by `verifyChapter`.** The MCP never generates HTML. `verifyChapter` only checks that the conventional file exists and stores its path; a missing artifact is a warning, not a failure. `verifyChapter` also back-fills chapter artifacts written after their gate (reconcile), so a late artifact still reaches the summary.
 13. **Path safety is non-negotiable.** Every manifest path field is validated with `pathSafety.isSafeRelPath` (no `..`, no leading slash); every host-side write under the workspace resolves through `pathSafety.containedPath`; probe params go through `dynamicProbes.expandUserPath`. One predicate, one guard, no local copies.
 14. **Configurable paths are a separate code path from personalization.** `${paths.<id>}` substitution lives in `pathResolver.substitutePathRefs` and runs ONLY against probe params + remediation, BEFORE the probe runner sees them.
 15. **The output-style check is advisory.** No MCP tool refuses to run because of the active output style. `start` reports it; `setOutputStyle` changes it only when the learner says yes.

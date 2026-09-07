@@ -7,6 +7,7 @@ function baseLesson() {
     title: 'Your first agent',
     summary: 'Build the smallest useful agent.',
     personalization_options: [],
+    workspace: { host: 'reference-app' },
   };
 }
 
@@ -18,7 +19,7 @@ describe('validateLesson (v0.3)', () => {
       expect(r.value.slug).toBe('01-basic-agent');
       expect(r.value.personalization_options).toEqual([]);
       expect(r.value.docs).toBeUndefined();
-      expect(r.value.workspace).toBeUndefined();
+      expect(r.value.workspace.host).toBe('reference-app');
     }
   });
 
@@ -30,7 +31,7 @@ describe('validateLesson (v0.3)', () => {
   });
 
   it('rejects when required fields are missing', () => {
-    for (const field of ['slug', 'title', 'summary', 'personalization_options']) {
+    for (const field of ['slug', 'title', 'summary', 'personalization_options', 'workspace']) {
       const obj = baseLesson() as Record<string, unknown>;
       delete obj[field];
       const r = validateLesson(obj);
@@ -137,6 +138,14 @@ describe('validateLesson (v0.3)', () => {
       expect(r.value.workspace?.files).toHaveLength(1);
       expect(r.value.workspace?.verification_cwd).toBe('.');
     }
+  });
+
+  it('requires a workspace block (v0.3 lessons always run inside a seeded workspace)', () => {
+    const obj = baseLesson() as Record<string, unknown>;
+    delete obj['workspace'];
+    const r = validateLesson(obj);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/workspace is required/);
   });
 
   it('defaults solution_files and files to empty arrays', () => {

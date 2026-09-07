@@ -2,34 +2,42 @@ import { saveState } from '../state.js';
 import type { State } from '../state.js';
 import { runVerification, type VerifySpawnFn } from '../verify.js';
 import { loadSelectedState, resolveSelectedLesson } from './setupGate.js';
-import { lessonPhase, resolveVerification } from '../progress.js';
+import { lessonPhase, resolveVerification, staleStateError } from '../progress.js';
 import {
   artifactExists,
   chapterArtifactPath,
+  reconcileArtifacts,
   summaryArtifactPath,
   SUMMARY_ARTIFACT_KEY,
 } from '../artifacts.js';
 import type { ArtifactMissingWarning } from '../warnings.js';
 
-export interface VerifyChapterResult {
-  ok: boolean;
-  errors?: string[];
+/** Test runners print "N skipped" when a suite opted out (vitest, jest, pytest, mocha). */
+const SKIPPED_PATTERN = /\b\d+\s+skipped\b/i;
+
+export interface VerifyChapterOutcome {
+  ok: true;
   /** True when the verification subprocess exited 0. */
-  pass?: boolean;
+  pass: boolean;
   /** Captured stdout+stderr. */
   output?: string;
-  /** True when the cursor advanced (chapter gate passed). */
-  advanced?: boolean;
+  /** True when the cursor advanced (chapter gate passed). Always `pass && !final`. */
+  advanced: boolean;
   /** True when this call ran final_verification (the e2e gate). */
-  final?: boolean;
-  /** True when every chapter passed AND the e2e gate passed. */
-  done?: boolean;
+  final: boolean;
+  /** True when every chapter passed AND the e2e gate passed. Always `final && pass`. */
+  done: boolean;
   /** chapter_cursor after this run. */
-  chapter_cursor?: number;
+  chapter_cursor: number;
   /** True when the conventional artifact file existed and was recorded. */
-  artifact_recorded?: boolean;
+  artifact_recorded: boolean;
+  /** Final gate only: the runner reported skipped tests, so the e2e did not run
+   * against a live service (usually missing credentials). */
+  skipped?: boolean;
   warnings?: ArtifactMissingWarning[];
 }
+
+export type VerifyChapterResult = { ok: false; errors: string[] } | VerifyChapterOutcome;
 
 export async function runVerifyChapter({
   projectRoot,
@@ -46,6 +54,7 @@ export async function runVerifyChapter({
   const { state } = stateStep;
 
   if (state.completed_at !== undefined) {
+    // Fast path: the lesson is done, so the registry is not touched.
     return recordSummary(projectRoot, state);
   }
 
@@ -55,7 +64,12 @@ export async function runVerifyChapter({
   }
   const { chapters, lesson } = lessonStep.loaded;
   const progress = lessonPhase(state, chapters);
+  if (progress.phase === 'stale') {
+    return { ok: false, errors: [staleStateError(projectRoot, progress)] };
+  }
   if (progress.phase === 'done') {
+    // Type-exhaustive arm: `lessonPhase` reports `done` only when
+    // `completed_at` is set, which the fast path above already handled.
     return recordSummary(projectRoot, state);
   }
 
@@ -65,17 +79,24 @@ export async function runVerifyChapter({
     isFinal ? chapters.final_verification : progress.chapter.verification,
   );
   const verifyOpts = spawn !== undefined ? { spawn } : undefined;
-  const v = await runVerification(spec, state.workspace_path ?? projectRoot, verifyOpts);
+  let v;
+  try {
+    v = await runVerification(spec, state.workspace_path, verifyOpts);
+  } catch (err) {
+    // An unparseable command is an authoring error, not a learner failure.
+    return { ok: false, errors: [`verification-invalid: ${(err as Error).message}`] };
+  }
   const ts = new Date().toISOString();
 
   const artifactKey = isFinal ? SUMMARY_ARTIFACT_KEY : progress.chapter.id;
   const artifactPath = isFinal
-    ? summaryArtifactPath(projectRoot, state.workspace_path)
-    : chapterArtifactPath(projectRoot, state.workspace_path, progress.index, progress.chapter.id);
+    ? summaryArtifactPath(state.workspace_path)
+    : chapterArtifactPath(state.workspace_path, progress.index, progress.chapter.id);
 
+  // Back-fill artifacts written after their gate before recording this one.
+  const { artifacts } = await reconcileArtifacts(state, chapters);
   const warnings: ArtifactMissingWarning[] = [];
   let artifactRecorded = false;
-  const artifacts = { ...state.artifacts };
   if (v.pass) {
     if (await artifactExists(artifactPath)) {
       artifacts[artifactKey] = artifactPath;
@@ -110,7 +131,7 @@ export async function runVerifyChapter({
     return { ok: false, errors: [`state-save-failed: ${(err as Error).message}`] };
   }
 
-  const result: VerifyChapterResult = {
+  const result: VerifyChapterOutcome = {
     ok: true,
     pass: v.pass,
     output: v.output,
@@ -120,29 +141,34 @@ export async function runVerifyChapter({
     chapter_cursor: newCursor,
     artifact_recorded: artifactRecorded,
   };
+  if (isFinal) result.skipped = SKIPPED_PATTERN.test(v.output ?? '');
   if (warnings.length > 0) result.warnings = warnings;
   return result;
 }
 
 /**
  * Lesson already complete. The summary artifact is written AFTER the e2e
- * gate, so this re-entrant call is where it gets recorded. Nothing is re-run,
- * and the registry is not touched.
+ * gate, so this re-entrant call is where it gets recorded, together with any
+ * chapter artifact written late. Nothing is re-run.
  */
 async function recordSummary(projectRoot: string, state: State): Promise<VerifyChapterResult> {
-  const summaryPath = summaryArtifactPath(projectRoot, state.workspace_path);
-  let summaryRecorded = state.artifacts[SUMMARY_ARTIFACT_KEY] !== undefined;
-  if (!summaryRecorded && (await artifactExists(summaryPath))) {
+  const artifacts = { ...state.artifacts };
+  let changed = false;
+  const summaryPath = summaryArtifactPath(state.workspace_path);
+  if (artifacts[SUMMARY_ARTIFACT_KEY] === undefined && (await artifactExists(summaryPath))) {
+    artifacts[SUMMARY_ARTIFACT_KEY] = summaryPath;
+    changed = true;
+  }
+  if (changed) {
     try {
       await saveState(projectRoot, {
         ...state,
-        artifacts: { ...state.artifacts, [SUMMARY_ARTIFACT_KEY]: summaryPath },
+        artifacts,
         history: [
           ...state.history,
           { ts: new Date().toISOString(), event: 'verifyChapter:summary:recorded' },
         ],
       });
-      summaryRecorded = true;
     } catch (err) {
       return { ok: false, errors: [`state-save-failed: ${(err as Error).message}`] };
     }
@@ -154,7 +180,7 @@ async function recordSummary(projectRoot: string, state: State): Promise<VerifyC
     done: true,
     advanced: false,
     chapter_cursor: state.chapter_cursor,
-    artifact_recorded: summaryRecorded,
+    artifact_recorded: artifacts[SUMMARY_ARTIFACT_KEY] !== undefined,
     output: 'Lesson already complete; final_verification passed earlier.',
   };
 }

@@ -193,9 +193,11 @@ async function probeClaudePluginEnabled(
     const detail =
       settings.kind === 'missing'
         ? `settings.json not found at ${settings.file}`
-        : settings.kind === 'parse-error'
-          ? `settings.json parse error: ${settings.detail}`
-          : 'settings.json is not an object';
+        : settings.kind === 'read-error'
+          ? `settings.json could not be read: ${settings.detail}`
+          : settings.kind === 'parse-error'
+            ? `settings.json parse error: ${settings.detail}`
+            : 'settings.json is not an object';
     return { pass: false, message: `${decl.message_fail} (${detail})` };
   }
   const enabled = settings.settings['enabledPlugins'];

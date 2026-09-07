@@ -14,8 +14,10 @@
 //   - optionally bootstrapped with `pnpm install` (or whatever
 //     workspace.host_install_command declares) on first creation.
 //
-// verifyChapter resolves its cwd through this module; the workspace is the
-// only filesystem location the lesson code edits.
+// selectLesson calls prepareWorkspace and stores the result as
+// state.workspace_path; verifyChapter runs the verification command inside
+// that stored path. The workspace is the only filesystem location the lesson
+// code edits.
 
 import * as fsPromises from 'node:fs/promises';
 import * as fs from 'node:fs';
@@ -94,6 +96,19 @@ export function defaultWorkspaceBase(): string {
   return path.join(os.homedir(), '.acc', 'workspaces');
 }
 
+/**
+ * Directory name for a lesson's workspace. Two courses may ship the same
+ * lesson slug, so the name carries the course plugin name (without its
+ * marketplace suffix): `acc-claude-sdk@local/01-basic-agent` becomes
+ * `acc-claude-sdk__01-basic-agent`.
+ */
+export function workspaceDirName(namespacedSlug: string): string {
+  const slash = namespacedSlug.indexOf('/');
+  if (slash <= 0) return namespacedSlug;
+  const course = namespacedSlug.slice(0, slash).replace(/@.*$/, '');
+  return `${course}__${namespacedSlug.slice(slash + 1)}`;
+}
+
 export function getWorkspacePath(slug: string, opts: WorkspaceOptions = {}): string {
   const base = opts.basePath ?? defaultWorkspaceBase();
   return path.join(base, slug);
@@ -169,14 +184,26 @@ export async function prepareWorkspace(
 
   // 4a'. Strip the solution. Paths are schema-validated; `containedPath`
   //      re-checks each one against the workspace root before anything is
-  //      deleted.
-  const strippedFiles = lessonData.workspace.solution_files;
-  const stripTargets = strippedFiles.map((rel) =>
-    resolveInsideWorkspace(workspacePath, rel, 'solution_files'),
-  );
-  await Promise.all(
-    stripTargets.map((target) => fsPromises.rm(target, { recursive: true, force: true })),
-  );
+  //      deleted. An entry the host does not contain is an authoring error:
+  //      silently skipping it would leave the real solution in the workspace
+  //      while the report says it was removed.
+  const strippedFiles: string[] = [];
+  const missingSolutionFiles: string[] = [];
+  for (const rel of lessonData.workspace.solution_files) {
+    const target = resolveInsideWorkspace(workspacePath, rel, 'solution_files');
+    if (await pathExists(target)) {
+      await fsPromises.rm(target, { recursive: true, force: true });
+      strippedFiles.push(rel);
+    } else {
+      missingSolutionFiles.push(rel);
+    }
+  }
+  if (missingSolutionFiles.length > 0) {
+    throw new WorkspacePrepareError(
+      'invalid-config',
+      `workspace.solution_files entries are absent from host '${lessonData.workspace.host}': ${missingSolutionFiles.join(', ')}`,
+    );
+  }
 
   // 4b. Copy starter files into their declared workspace paths.
   const starterFiles: string[] = [];

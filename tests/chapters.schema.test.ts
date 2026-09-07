@@ -96,4 +96,19 @@ describe('validateChapters', () => {
     delete m['final_verification'];
     expect(validateChapters(m).ok).toBe(false);
   });
+
+  it('rejects whitespace-only commands and shell operators (the command runs without a shell)', () => {
+    for (const command of ['   ', 'pnpm build && pnpm test', 'a | b', 'a; b', 'a > out.txt', 'echo `x`', 'a || b']) {
+      const r = validateChapters(manifest({ chapters: [chapter({ verification: { mode: 'test-suite', command } })] }));
+      expect(r.ok, command).toBe(false);
+    }
+    const ok = validateChapters(manifest({ chapters: [chapter({ verification: { mode: 'test-suite', command: 'pnpm vitest run "tests/a b.test.ts"' } })] }));
+    expect(ok.ok).toBe(true);
+  });
+
+  it("rejects the reserved chapter id 'summary'", () => {
+    const r = validateChapters(manifest({ chapters: [chapter({ id: 'summary' })] }));
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/reserved/);
+  });
 });

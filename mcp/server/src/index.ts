@@ -50,12 +50,13 @@ export function registerTools(server: McpServer): void {
 
   server.tool(
     'selectLesson',
-    'Pick a lesson by namespaced slug (`<course>/<lesson>`). Mints fresh v5 state, seeds the workspace (host copy minus solution_files, plus starters), and returns description, prerequisites, personalization prompts and first-run setup info.',
+    'Pick a lesson by namespaced slug (`<course>/<lesson>`). Seeds the workspace (host copy minus solution_files, plus starters) and returns description, prerequisites, personalization prompts, workspacePath/workspaceCreated/workspaceArchivedTo/workspaceStrippedFiles and first-run setup info. When state already holds this lesson unfinished and the workspace was reused, it RESUMES (resumed: true, chapter_cursor) instead of resetting; pass restart: true to start at chapter 1. A corrupt previous state.json is reported in warnings.',
     {
       projectRoot: z.string().describe('Absolute path to the project root'),
       slug: z.string().describe('Namespaced lesson slug (course-plugin/lesson)'),
+      restart: z.boolean().optional().describe('Discard existing progress on this lesson and start over'),
     },
-    async ({ projectRoot, slug }) => json(await runSelectLesson({ projectRoot, slug })),
+    async ({ projectRoot, slug, restart }) => json(await runSelectLesson({ projectRoot, slug, restart })),
   );
 
   server.tool(
@@ -80,7 +81,7 @@ export function registerTools(server: McpServer): void {
 
   server.tool(
     'nextChapter',
-    'Read the current chapter: brief (personalization rendered), key_idea, expected_files, tests, verification, docs_dir, workspace_path, artifact_path and artifact_conventions_path. Returns done: true with final_verification when every chapter passed and the e2e gate is pending; done + completed once the e2e passed.',
+    'Read the current chapter: brief (personalization rendered), key_idea, expected_files, tests, resolved verification (cwd always set), docs_dir, workspace_path, artifact_path, artifact_nav (prev/next filenames) and artifact_conventions_path. Once every chapter passed it returns the done envelope: done: true, summary_artifact_path, artifacts (chapter id -> recorded path), publish_available, plus final_verification while the e2e gate is pending, or completed: true once it passed. Returns ok: false with a "Lesson state stale:" error when chapters.json changed under the lesson.',
     {
       projectRoot: z.string().describe('Absolute path to the project root'),
     },
@@ -89,7 +90,7 @@ export function registerTools(server: McpServer): void {
 
   server.tool(
     'verifyChapter',
-    "Run the current chapter's verification, or final_verification (the e2e gate) when every chapter already passed. On pass: advances chapter_cursor (or sets completed_at) and records the chapter's artifact path when the file exists. On fail: leaves the cursor unchanged and returns the captured output.",
+    "Run the current chapter's verification, or final_verification (the e2e gate) when every chapter already passed. On pass: advances chapter_cursor (or sets completed_at), records the chapter's artifact when the file exists and back-fills any chapter artifact written late. On fail: leaves the cursor unchanged and returns the captured output. The final gate also reports skipped: true when the runner printed skipped tests. After the lesson completes, a further call re-runs nothing and records summary.html once it exists (artifact_recorded: true). ok: false with errors means the gate did not record a result (state save failure, unparseable command, stale state).",
     {
       projectRoot: z.string().describe('Absolute path to the project root'),
     },

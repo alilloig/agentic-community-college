@@ -7,8 +7,11 @@
 //
 // Retired in v5 (vs v4): `selected_output_style` (output modes are gone),
 // `section_cursor` (renamed `chapter_cursor`). New: `artifacts` (chapter id →
-// absolute artifact path, plus the `summary` key) and `completed_at` (set when
-// final_verification passed).
+// absolute artifact path, plus the `summary` key), `completed_at` (set when
+// final_verification passed), and `workspace_path` is now required because
+// every v0.3 lesson runs inside a seeded workspace.
+
+export const STATE_SCHEMA_VERSION = 5;
 
 export interface Personalization {
   [key: string]: unknown;
@@ -29,7 +32,7 @@ export interface TestStatus {
 }
 
 export interface State {
-  schema_version: number;
+  schema_version: typeof STATE_SCHEMA_VERSION;
   /** Namespaced slug: `<course>/<lesson>`. */
   selected_lesson: string;
   personalization: Personalization;
@@ -39,8 +42,8 @@ export interface State {
   history: HistoryEntry[];
   /** Chapter id → absolute artifact path. The summary uses the key `summary`. */
   artifacts: Record<string, string>;
-  /** Absolute path to the lesson workspace when the lesson declares one. */
-  workspace_path?: string;
+  /** Absolute path to the lesson workspace. */
+  workspace_path: string;
   /** Result of the last verifyChapter run. */
   test_status?: TestStatus;
   /** ISO-8601 timestamp set when final_verification passed. */
@@ -55,8 +58,11 @@ export function validateState(v: unknown): ValidationResult<State> {
   }
   const obj = v as Record<string, unknown>;
 
-  if (typeof obj['schema_version'] !== 'number') {
-    return { ok: false, error: 'schema_version must be a number' };
+  if (obj['schema_version'] !== STATE_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      error: `schema_version must be ${STATE_SCHEMA_VERSION} (got ${JSON.stringify(obj['schema_version'])})`,
+    };
   }
   if (typeof obj['selected_lesson'] !== 'string' || (obj['selected_lesson'] as string).length === 0) {
     return { ok: false, error: 'selected_lesson must be a non-empty string' };
@@ -89,22 +95,19 @@ export function validateState(v: unknown): ValidationResult<State> {
     }
     artifacts[k] = val;
   }
+  if (typeof obj['workspace_path'] !== 'string' || (obj['workspace_path'] as string).length === 0) {
+    return { ok: false, error: 'workspace_path must be a non-empty string' };
+  }
 
   const value: State = {
-    schema_version: obj['schema_version'] as number,
+    schema_version: STATE_SCHEMA_VERSION,
     selected_lesson: obj['selected_lesson'] as string,
     personalization: obj['personalization'] as Personalization,
     chapter_cursor: obj['chapter_cursor'] as number,
     history: obj['history'] as HistoryEntry[],
     artifacts,
+    workspace_path: obj['workspace_path'] as string,
   };
-
-  if (obj['workspace_path'] !== undefined) {
-    if (typeof obj['workspace_path'] !== 'string') {
-      return { ok: false, error: 'workspace_path must be a string when present' };
-    }
-    value.workspace_path = obj['workspace_path'] as string;
-  }
 
   if (obj['completed_at'] !== undefined) {
     if (typeof obj['completed_at'] !== 'string') {

@@ -29,7 +29,7 @@ describe('runVerification — compile mode (A8)', () => {
     }));
 
     const result: any = await runVerification(
-      { mode: 'compile', command: 'pnpm build' },
+      { mode: 'compile', command: 'pnpm build', cwd: '.' },
       '/tmp/proj-fixture',
       { spawn: spawnSpy as unknown as SpawnFn },
     );
@@ -53,7 +53,7 @@ describe('runVerification — compile mode (A8)', () => {
       stderr: 'syntax error',
     }));
     const result: any = await runVerification(
-      { mode: 'compile', command: 'pnpm build' },
+      { mode: 'compile', command: 'pnpm build', cwd: '.' },
       '/tmp/proj',
       { spawn: spawnSpy as unknown as SpawnFn },
     );
@@ -72,7 +72,7 @@ describe('runVerification — compile mode (A8)', () => {
     let result: any;
     try {
       result = await runVerification(
-        { mode: 'compile', command: 'pnpm build' },
+        { mode: 'compile', command: 'pnpm build', cwd: '.' },
         '/tmp/proj',
         { spawn: spawnSpy },
       );
@@ -92,7 +92,7 @@ describe('runVerification — compile mode (A8)', () => {
       stderr: '',
     }));
     await runVerification(
-      { mode: 'compile', command: 'pnpm build' },
+      { mode: 'compile', command: 'pnpm build', cwd: '.' },
       '/tmp/proj',
       { spawn: spawnSpy as unknown as SpawnFn },
     );
@@ -105,7 +105,7 @@ describe('runVerification — unsupported modes (A8)', () => {
   it('T-220: test mode throws VerificationModeUnsupportedError', async () => {
     let caught: unknown;
     try {
-      await runVerification({ mode: 'test', command: 'pnpm test' } as any, '/tmp/proj');
+      await runVerification({ mode: 'test', command: 'pnpm test', cwd: '.' } as any, '/tmp/proj');
     } catch (err) {
       caught = err;
     }
@@ -252,7 +252,7 @@ describe('parseCommand — shell-style parser (A14)', () => {
       stderr: '',
     }));
     await runVerification(
-      { mode: 'compile', command: 'pnpm "build dir" -x' },
+      { mode: 'compile', command: 'pnpm "build dir" -x', cwd: '.' },
       '/tmp/proj',
       { spawn: spy as unknown as SF },
     );

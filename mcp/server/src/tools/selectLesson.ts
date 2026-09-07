@@ -2,7 +2,7 @@ import { loadState, saveState, STATE_SCHEMA_VERSION } from '../state.js';
 import type { State } from '../schemas/state.js';
 import { discoverCourses } from '../pluginsRoot.js';
 import { loadLessonBySlug } from '../registry.js';
-import { prepareWorkspace, WorkspacePrepareError } from '../workspace.js';
+import { prepareWorkspace, workspaceDirName, WorkspacePrepareError } from '../workspace.js';
 import {
   accConfigExists,
   loadAccConfig,
@@ -10,13 +10,15 @@ import {
   type AccConfig,
 } from '../settings.js';
 import { resolveCoursePaths, envVarsFor } from '../pathResolver.js';
+import type { StateCorruptWarning } from '../warnings.js';
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 
 export interface SelectLessonResult {
   ok: boolean;
   errors?: string[];
-  warnings?: Array<{ kind: string; message: string }>;
+  /** `state-corrupt` when the previous state.json was unreadable (it was archived). */
+  warnings?: StateCorruptWarning[];
   description?: string;
   /** Free-form prompts the conductor walks through to call setPersonalization. */
   personalizationPrompts?: Array<{
@@ -30,6 +32,10 @@ export interface SelectLessonResult {
    * advancing to setPersonalization. Empty/absent when the lesson declares
    * no prerequisites. */
   prerequisites?: string[];
+  /** True when existing progress on this lesson was kept instead of reset. */
+  resumed?: boolean;
+  /** Current zero-based cursor (meaningful when `resumed` is true). */
+  chapter_cursor?: number;
   workspacePath?: string;
   workspaceCreated?: boolean;
   workspaceArchivedTo?: string;
@@ -48,17 +54,27 @@ export interface SelectLessonResult {
 export async function runSelectLesson({
   projectRoot,
   slug,
+  restart,
   homeDir,
 }: {
   projectRoot: string;
   slug: string;
+  /** Discard existing progress on this lesson and start at chapter 1. */
+  restart?: boolean;
   /** Test seam for the ACC config home — defaults to `os.homedir()`. */
   homeDir?: string;
 }): Promise<SelectLessonResult> {
-  // Load state purely for its side effect — corrupt JSON triggers the archive
-  // flow inside `loadState`, and a schema-mismatch leaves the old file on disk
-  // so the user can recover. Either way we proceed to mint fresh v5 state.
-  await loadState(projectRoot);
+  // Classify the previous state. Corrupt JSON is archived inside `loadState`
+  // and reported below; a schema mismatch leaves the old file on disk and
+  // gets replaced; healthy state on the same lesson is resumed unless the
+  // caller asked for a restart.
+  const previous = await loadState(projectRoot);
+  const warnings: StateCorruptWarning[] = [];
+  if (previous.kind === 'corrupt') {
+    const w: StateCorruptWarning = { kind: 'state-corrupt', message: previous.message };
+    if (previous.archivedTo !== undefined) w.archivedTo = previous.archivedTo;
+    warnings.push(w);
+  }
 
   const discovery = discoverCourses();
   if (discovery.courses.length === 0) {
@@ -103,44 +119,48 @@ export async function runSelectLesson({
     : {};
   const pathEnv = envVarsFor(resolvedPaths);
 
-  let workspacePath: string | undefined;
-  let workspaceCreated: boolean | undefined;
-  let workspaceArchivedTo: string | undefined;
-  let workspaceStrippedFiles: string[] | undefined;
-  if (lesson.workspace) {
-    try {
-      const ws = await prepareWorkspace(lesson.slug, info.lesson_dir, lesson, {
-        pathEnv,
-      });
-      workspacePath = ws.workspacePath;
-      workspaceCreated = ws.created;
-      workspaceArchivedTo = ws.archivedTo;
-      workspaceStrippedFiles = ws.strippedFiles;
-    } catch (err) {
-      if (err instanceof WorkspacePrepareError) {
-        return { ok: false, errors: [`workspace-prepare-failed (${err.kind}): ${err.message}`] };
-      }
-      return { ok: false, errors: [`workspace-prepare-failed: ${(err as Error).message}`] };
+  let ws;
+  try {
+    ws = await prepareWorkspace(workspaceDirName(info.namespaced_slug), info.lesson_dir, lesson, {
+      pathEnv,
+    });
+  } catch (err) {
+    if (err instanceof WorkspacePrepareError) {
+      return { ok: false, errors: [`workspace-prepare-failed (${err.kind}): ${err.message}`] };
     }
+    return { ok: false, errors: [`workspace-prepare-failed: ${(err as Error).message}`] };
   }
 
-  // Mint fresh v5 state: cursor at chapter 0, no artifacts yet.
-  const fresh: State = {
-    schema_version: STATE_SCHEMA_VERSION,
-    selected_lesson: info.namespaced_slug,
-    personalization: {},
-    chapter_cursor: 0,
-    history: [
-      { ts: new Date().toISOString(), event: `selectLesson:${info.namespaced_slug}` },
-    ],
-    artifacts: {},
-  };
-  if (workspacePath !== undefined) fresh.workspace_path = workspacePath;
+  // Resume when healthy state points at this lesson, the lesson is not
+  // complete, and the workspace the cursor refers to was reused as is. A
+  // recreated workspace (host changed) holds none of the learner's code, so
+  // its progress is meaningless and we start over.
+  const canResume =
+    restart !== true &&
+    previous.kind === 'ok' &&
+    previous.state.selected_lesson === info.namespaced_slug &&
+    previous.state.completed_at === undefined &&
+    previous.state.workspace_path === ws.workspacePath &&
+    !ws.created;
+  const resumed = canResume;
 
-  try {
-    await saveState(projectRoot, fresh);
-  } catch (err) {
-    return { ok: false, errors: [`state-save-failed: ${(err as Error).message}`] };
+  if (!canResume) {
+    const fresh: State = {
+      schema_version: STATE_SCHEMA_VERSION,
+      selected_lesson: info.namespaced_slug,
+      personalization: {},
+      chapter_cursor: 0,
+      history: [
+        { ts: new Date().toISOString(), event: `selectLesson:${info.namespaced_slug}` },
+      ],
+      artifacts: {},
+      workspace_path: ws.workspacePath,
+    };
+    try {
+      await saveState(projectRoot, fresh);
+    } catch (err) {
+      return { ok: false, errors: [`state-save-failed: ${(err as Error).message}`] };
+    }
   }
 
   // Render description.md (lesson-level overview) if present.
@@ -173,17 +193,24 @@ export async function runSelectLesson({
     }
   }
 
-  const result: SelectLessonResult = { ok: true };
+  const result: SelectLessonResult = {
+    ok: true,
+    workspacePath: ws.workspacePath,
+    workspaceCreated: ws.created,
+  };
+  if (warnings.length > 0) result.warnings = warnings;
+  if (resumed && previous.kind === 'ok') {
+    result.resumed = true;
+    result.chapter_cursor = previous.state.chapter_cursor;
+  }
   if (description !== undefined) result.description = description;
   if (personalizationPrompts.length > 0) result.personalizationPrompts = personalizationPrompts;
   if (lesson.prerequisites && lesson.prerequisites.length > 0) {
     result.prerequisites = lesson.prerequisites;
   }
-  if (workspacePath !== undefined) result.workspacePath = workspacePath;
-  if (workspaceCreated !== undefined) result.workspaceCreated = workspaceCreated;
-  if (workspaceArchivedTo !== undefined) result.workspaceArchivedTo = workspaceArchivedTo;
-  if (workspaceStrippedFiles !== undefined && workspaceStrippedFiles.length > 0) {
-    result.workspaceStrippedFiles = workspaceStrippedFiles;
+  if (ws.archivedTo !== undefined) result.workspaceArchivedTo = ws.archivedTo;
+  if (ws.strippedFiles !== undefined && ws.strippedFiles.length > 0) {
+    result.workspaceStrippedFiles = ws.strippedFiles;
   }
 
   // One-time nudge: surface a friendly first-run prompt the very first time

@@ -107,6 +107,37 @@ describe('writeOutputStyle', () => {
     expect(fs.readFileSync(settingsFile(), 'utf8')).toBe('{ broken');
   });
 
+  it('refuses to touch a settings file that exists but cannot be read', async () => {
+    if (process.getuid?.() === 0) return; // root ignores file modes
+    writeSettings(JSON.stringify({ outputStyle: 'Default', enabledPlugins: { 'x@y': true } }));
+    fs.chmodSync(settingsFile(), 0o000);
+    try {
+      const r = await writeOutputStyle('Concise', tempHome);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/Failed to read/);
+      const status = getOutputStyleStatus(tempHome);
+      expect(status.warning?.kind).toBe('settings-read-error');
+    } finally {
+      fs.chmodSync(settingsFile(), 0o600);
+    }
+    expect(JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).enabledPlugins).toEqual({ 'x@y': true });
+  });
+
+  it('refuses a settings file whose top level is not an object', async () => {
+    writeSettings('[1, 2]');
+    const r = await writeOutputStyle('Concise', tempHome);
+    expect(r.ok).toBe(false);
+    expect(fs.readFileSync(settingsFile(), 'utf8')).toBe('[1, 2]');
+  });
+
+  it('reports previous: null when outputStyle held a non-string and replaces it', async () => {
+    writeSettings(JSON.stringify({ outputStyle: 42 }));
+    const r = await writeOutputStyle('Concise', tempHome);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.previous).toBeNull();
+    expect(JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).outputStyle).toBe('Concise');
+  });
+
   it('preserves the existing file mode', async () => {
     writeSettings(JSON.stringify({ outputStyle: 'Default' }));
     fs.chmodSync(settingsFile(), 0o644);

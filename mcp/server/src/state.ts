@@ -2,12 +2,11 @@ import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import * as crypto from 'node:crypto';
 import { atomicWriteFile } from './atomicWrite.js';
-import { validateState } from './schemas/state.js';
+import { validateState, STATE_SCHEMA_VERSION } from './schemas/state.js';
 import type { State } from './schemas/state.js';
 
 export type { State };
-
-export const STATE_SCHEMA_VERSION = 5;
+export { STATE_SCHEMA_VERSION };
 
 const STATE_DIR = '.acc';
 const STATE_FILE = 'state.json';
@@ -80,11 +79,10 @@ export async function loadState(projectRoot: string): Promise<LoadStateResult> {
 }
 
 // Helper to archive corrupt bytes and build the LoadStateResult. If the
-// archive write fails (ENOSPC / EACCES on .sui-deepbook-course / etc.), we
-// degrade to corrupt-without-archivedTo so the primary corruption diagnostic
-// still surfaces. Without this guard, the SDK turns the rejection into a
-// generic transport error and cycle 4's recovery flow loses its dispatch
-// signal. See review.md cluster C008a.
+// archive write fails (ENOSPC / EACCES on .acc/ / etc.), we degrade to
+// corrupt-without-archivedTo so the primary corruption diagnostic still
+// surfaces. Without this guard, the MCP SDK turns the rejection into a
+// generic transport error and the learner never sees the recovery hint.
 async function classifyCorrupt(
   stateDir: string,
   raw: string,

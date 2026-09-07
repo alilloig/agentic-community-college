@@ -59,8 +59,18 @@ export function validateVerification(
       error: `${where}.mode must be 'compile' or 'test-suite' (got ${JSON.stringify(v['mode'])})`,
     };
   }
-  if (typeof v['command'] !== 'string' || (v['command'] as string).length === 0) {
+  const command = v['command'];
+  if (typeof command !== 'string' || command.trim().length === 0) {
     return { ok: false, error: `${where}.command must be a non-empty string` };
+  }
+  // The runtime splits the command on whitespace and spawns it without a
+  // shell, so operators would reach the program as literal arguments. Reject
+  // them here so the author learns at scan time, not at the gate.
+  if (/&&|\|\||[|;<>`]/.test(command)) {
+    return {
+      ok: false,
+      error: `${where}.command must be one program plus arguments; shell operators (&&, ||, |, ;, <, >, backticks) are not supported because the command runs without a shell`,
+    };
   }
   const spec: VerificationSpec = {
     mode: v['mode'] as VerificationMode,
@@ -110,6 +120,9 @@ export function validateChapters(v: unknown): ValidationResult<ChaptersManifest>
 
     if (typeof c['id'] !== 'string' || (c['id'] as string).length === 0) {
       return { ok: false, error: `${where}.id must be a non-empty string` };
+    }
+    if (c['id'] === 'summary') {
+      return { ok: false, error: `${where}.id 'summary' is reserved for the summary artifact` };
     }
     if (!isFilenameSafeId(c['id'] as string)) {
       return {

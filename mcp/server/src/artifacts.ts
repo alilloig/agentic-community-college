@@ -9,31 +9,26 @@
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ChapterData } from './schemas/chapters.js';
+import type { ChapterData, ChaptersManifest } from './schemas/chapters.js';
+import type { State } from './schemas/state.js';
 
 export const SUMMARY_ARTIFACT_KEY = 'summary';
 const SUMMARY_FILENAME = 'summary.html';
 
-/** `<workspace>/artifacts`, or `<projectRoot>/.acc/artifacts` for lessons without a workspace. */
-function artifactsDir(projectRoot: string, workspacePath?: string): string {
-  return path.join(workspacePath ?? path.join(projectRoot, '.acc'), 'artifacts');
+function artifactsDir(workspacePath: string): string {
+  return path.join(workspacePath, 'artifacts');
 }
 
 function chapterFilename(index: number, chapterId: string): string {
   return `${String(index + 1).padStart(2, '0')}-${chapterId}.html`;
 }
 
-export function chapterArtifactPath(
-  projectRoot: string,
-  workspacePath: string | undefined,
-  index: number,
-  chapterId: string,
-): string {
-  return path.join(artifactsDir(projectRoot, workspacePath), chapterFilename(index, chapterId));
+export function chapterArtifactPath(workspacePath: string, index: number, chapterId: string): string {
+  return path.join(artifactsDir(workspacePath), chapterFilename(index, chapterId));
 }
 
-export function summaryArtifactPath(projectRoot: string, workspacePath?: string): string {
-  return path.join(artifactsDir(projectRoot, workspacePath), SUMMARY_FILENAME);
+export function summaryArtifactPath(workspacePath: string): string {
+  return path.join(artifactsDir(workspacePath), SUMMARY_FILENAME);
 }
 
 export interface ArtifactNav {
@@ -61,10 +56,44 @@ export const CONVENTIONS_PATH = path.resolve(
   '..', '..', '..', 'skills', 'chapter-artifact', 'references', 'conventions.md',
 );
 
+/** True iff a regular file exists at `p`. ENOENT/ENOTDIR mean absent; anything else re-throws. */
 export async function artifactExists(p: string): Promise<boolean> {
   try {
     return (await fsPromises.stat(p)).isFile();
-  } catch {
-    return false;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'ENOTDIR') return false;
+    throw err;
   }
+}
+
+/**
+ * Back-fill `state.artifacts` with every artifact that exists on disk but was
+ * written after its gate: chapters below the cursor and, once the lesson is
+ * complete, the summary. Returns the merged map and whether anything changed.
+ */
+export async function reconcileArtifacts(
+  state: State,
+  chapters: ChaptersManifest,
+): Promise<{ artifacts: Record<string, string>; changed: boolean }> {
+  const artifacts = { ...state.artifacts };
+  let changed = false;
+  const passed = Math.min(state.chapter_cursor, chapters.chapters.length);
+  for (let i = 0; i < passed; i++) {
+    const id = chapters.chapters[i].id;
+    if (artifacts[id] !== undefined) continue;
+    const p = chapterArtifactPath(state.workspace_path, i, id);
+    if (await artifactExists(p)) {
+      artifacts[id] = p;
+      changed = true;
+    }
+  }
+  if (state.completed_at !== undefined && artifacts[SUMMARY_ARTIFACT_KEY] === undefined) {
+    const p = summaryArtifactPath(state.workspace_path);
+    if (await artifactExists(p)) {
+      artifacts[SUMMARY_ARTIFACT_KEY] = p;
+      changed = true;
+    }
+  }
+  return { artifacts, changed };
 }

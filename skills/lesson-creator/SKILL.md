@@ -17,7 +17,7 @@ lessons/<slug>/
 ├── description.md       what the learner will build, why, prerequisites, time
 ├── docs/                Phase 0 snapshot: curated markdown + INDEX.md
 ├── chapters.json        ordered chapters, per-chapter verification, final e2e gate
-├── chapters/NN-<id>.md  chapter briefs
+├── chapters/NN-<name>.md chapter briefs; NN is the position, <name> is the chapter id without its cNN- prefix
 ├── reference-app/       complete working solution INCLUDING every test
 └── validation.json      result of the learner validation pass
 ```
@@ -99,13 +99,15 @@ Build `<lesson>/reference-app/` as a complete, working project.
 4. **Offline by default.** Use fixtures, in-memory fakes, or a mock at the network boundary. A learner with no network must pass every chapter.
 5. **Credentials.** When the topic needs a live credential (an API key), the e2e reads it from an environment variable. When the variable is absent, the e2e skips itself with a clear message that names the variable, for example `describe.skipIf(!process.env.ANTHROPIC_API_KEY)("e2e (ANTHROPIC_API_KEY not set: skipped)", ...)`. A skipped e2e exits 0. Chapter tests never need credentials.
 6. **Implement the solution.** Write the code in `src/` until `pnpm install && pnpm vitest run` is green in `reference-app/`. Run each chapter's command too (`pnpm vitest run tests/NN-<id>.test.ts`).
-7. **Decide `solution_files`.** List every file the conductor must write at runtime. Scaffold, config, fixtures, and tests are not solution files. Check the seed: copy `reference-app/` to a temp dir, delete the solution files, run the install command. The install must succeed and the tests must fail on missing modules, not crash the runner.
+7. **Decide `solution_files`.** List every file the conductor must write at runtime. Scaffold, config, fixtures, and tests are not solution files. Every entry must exist in `reference-app/`; the seed fails on a missing entry. Check the seed: copy `reference-app/` to a temp dir, delete the solution files, run the install command. The install must succeed and the tests must fail on missing modules, not crash the runner.
 
 ## Step 4: Chapter briefs and manifests
 
 Write `<lesson>/chapters.json` from `chapters.json.tmpl`. One entry per planned chapter with `id`, `title`, `brief_md`, `key_idea`, `expected_files`, `tests`, and `verification`. Per-chapter `verification` is `{ "mode": "test-suite", "command": "pnpm vitest run tests/NN-<id>.test.ts" }`. `final_verification` is `{ "mode": "test-suite", "command": "pnpm vitest run" }`. Modes: `compile`, `test-suite`. Pass is exit 0.
 
-Write one `<lesson>/chapters/NN-<id>.md` per chapter from `chapter.md.tmpl`. Three parts:
+Every `command` is split on whitespace and run **without a shell**: one program plus its arguments. No `&&`, `||`, `|`, `;`, `>`, `<`, backticks, environment prefixes (`VAR=x cmd`), or single quotes. The schema rejects shell operators, and a whitespace-only command. When a chapter needs two commands, put them behind one script in `package.json` and call that script.
+
+Write one `<lesson>/chapters/NN-<name>.md` per chapter from `chapter.md.tmpl`. `NN` is the chapter position and `<name>` is the chapter id without its `cNN-` prefix (id `c01-run-query` gives `chapters/01-run-query.md`). Three parts:
 
 - **What we implement**: learner-facing, 3 to 6 lines. What the code does after this chapter and why it matters.
 - **Done when**: one bullet per test in this chapter's test files. Test name plus what it asserts. Use the real names from the test files.

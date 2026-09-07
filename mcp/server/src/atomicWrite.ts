@@ -5,8 +5,9 @@
 // over the canonical path. If anything in the sequence throws after the tmp
 // file has been created, the tmp file is unlinked best-effort so the .acc/
 // directory doesn't accumulate orphaned `*.tmp-…` artifacts. Reuses the same
-// semantics state.ts originally encoded inline; extracted so workspace.ts and
-// outputStyle.ts don't drift away from it.
+// semantics state.ts originally encoded inline; extracted so every durable
+// writer (state.ts, workspace.ts, settings.ts, outputStyle.ts) shares one
+// implementation.
 
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';

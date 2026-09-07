@@ -12,12 +12,21 @@ import * as fsPromises from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { atomicWriteFile } from './atomicWrite.js';
+import type { OutputStyleWarning } from './warnings.js';
+
+export type { OutputStyleWarning };
 
 export const RECOMMENDED_OUTPUT_STYLE = 'Concise';
 
 export type ClaudeSettingsResult =
   | { ok: true; file: string; settings: Record<string, unknown> }
-  | { ok: false; file: string; kind: 'missing' | 'parse-error' | 'not-object'; detail: string };
+  | {
+      ok: false;
+      file: string;
+      /** `missing` is ENOENT only. Any other read failure is `read-error`. */
+      kind: 'missing' | 'read-error' | 'parse-error' | 'not-object';
+      detail: string;
+    };
 
 /** Read and parse `~/.claude/settings.json` without throwing. */
 export function readClaudeSettings(homeDir?: string): ClaudeSettingsResult {
@@ -26,7 +35,13 @@ export function readClaudeSettings(homeDir?: string): ClaudeSettingsResult {
   try {
     raw = fs.readFileSync(file, 'utf8');
   } catch (err) {
-    return { ok: false, file, kind: 'missing', detail: (err as Error).message };
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      ok: false,
+      file,
+      kind: code === 'ENOENT' ? 'missing' : 'read-error',
+      detail: (err as Error).message,
+    };
   }
   let parsed: unknown;
   try {
@@ -49,11 +64,6 @@ export function isClaudePluginEnabled(pluginKey: string, homeDir?: string): bool
   return (enabled as Record<string, unknown>)[pluginKey] === true;
 }
 
-export interface OutputStyleWarning {
-  kind: 'settings-file-missing' | 'settings-parse-error';
-  message: string;
-}
-
 export interface OutputStyleStatus {
   /** The `outputStyle` value in settings.json, or null when unset/unreadable. */
   active: string | null;
@@ -64,10 +74,14 @@ export interface OutputStyleStatus {
 }
 
 function warningFor(result: Extract<ClaudeSettingsResult, { ok: false }>): OutputStyleWarning {
-  if (result.kind === 'missing') {
-    return { kind: 'settings-file-missing', message: `Settings file not found at ${result.file}` };
+  switch (result.kind) {
+    case 'missing':
+      return { kind: 'settings-file-missing', message: `Settings file not found at ${result.file}` };
+    case 'read-error':
+      return { kind: 'settings-read-error', message: `Failed to read ${result.file}: ${result.detail}` };
+    default:
+      return { kind: 'settings-parse-error', message: `Failed to parse ${result.file}: ${result.detail}` };
   }
-  return { kind: 'settings-parse-error', message: `Failed to parse ${result.file}: ${result.detail}` };
 }
 
 export function getOutputStyleStatus(homeDir?: string): OutputStyleStatus {
@@ -88,9 +102,10 @@ export type WriteOutputStyleResult =
   | { ok: false; error: string };
 
 /**
- * Persist `outputStyle` into settings.json. Creates the file when absent,
- * refuses to overwrite a file it cannot parse (so a hand-edited settings file
- * with a syntax error is never clobbered), preserves the existing file mode.
+ * Persist `outputStyle` into settings.json. Creates the file only when it is
+ * absent (ENOENT). Any file that exists but cannot be read or parsed is left
+ * untouched, so an unreadable or hand-edited settings file is never
+ * clobbered. Preserves the existing file mode.
  */
 export async function writeOutputStyle(
   style: string,
