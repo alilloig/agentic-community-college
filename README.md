@@ -27,11 +27,27 @@ There are no output modes. ACC recommends the **Concise** Claude Code output sty
 /acc-claude-sdk:start                                   # start a lesson
 ```
 
-## Courses
+## The course: build agents with the Claude Agent SDK
 
-- **[`acc-claude-sdk`](https://github.com/contract-hero/acc-claude-sdk)**: the first v0.3 course. Build agents with the Claude Agent SDK, chapter by chapter, with tests as the contract. Start with `/acc-claude-sdk:start`.
-- **[`acc-deepbook-course`](https://github.com/contract-hero/acc-deepbook-course)**: 4 Sui DeepBook lessons (orders, CLOB swaps, flash-loan arbitrage, market-maker bot). Written for the v0.2 section model; migration to v0.3 chapters is pending, so it does not run on ACC v0.3 yet.
-- **[`acc-evm-wal`](https://github.com/contract-hero/acc-evm-wal)**: 6 Walrus x EVM lessons (blob anchoring, Walrus Sites, ENS resolver, DAO proposals, verifiable manifest client, quilt-backed ERC-721). Also on the v0.2 section model, pending migration.
+**[`acc-claude-sdk`](https://github.com/contract-hero/acc-claude-sdk)** is the first course on the v0.3 model. Lesson 1, *Your first agent*, builds the smallest useful agent in TypeScript in three chapters, each defined by its tests:
+
+1. **Run a query and read the result.** `query()` returns an async iterable of typed messages; the `result` message is the contract.
+2. **Give the agent a custom in-process tool.** A Zod shape plus an async handler, served by `createSdkMcpServer()` and addressed as `mcp__notes__add_note`.
+3. **Wrap it in a tiny CLI.** Inject `query()` and the output streams so the CLI is testable offline; the result message drives the summary line.
+
+Unit tests run offline against a fake message stream. The end-to-end test runs the real agent and needs `ANTHROPIC_API_KEY`. Every chapter ends with an HTML artifact; the lesson ends with a summary page of the most important learnings. Later lessons add sessions, hooks and subagents.
+
+```text
+/plugin install acc-claude-sdk@contract-hero
+/acc-claude-sdk:start
+```
+
+## Previous work
+
+Two courses were written for the v0.2 section model before the chapter model existed. They stay published as prior work and do not run on ACC v0.3 until they are migrated to `chapters.json`:
+
+- [`acc-deepbook-course`](https://github.com/contract-hero/acc-deepbook-course): 4 Sui DeepBook lessons (orders on a `BalanceManager`, swaps over the CLOB, flash-loan arbitrage, a market-maker bot).
+- [`acc-evm-wal`](https://github.com/contract-hero/acc-evm-wal): 6 Walrus x EVM lessons (blob anchoring, Walrus Sites, an ENS-gated resolver, DAO proposals, a verifiable manifest client, a quilt-backed ERC-721).
 
 ## Write your own course
 

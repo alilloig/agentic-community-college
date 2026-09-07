@@ -199,6 +199,15 @@
       font-size: 15px;
     }
     .card h3 code { font-size: 0.95em; }
+    .cards-featured { grid-template-columns: 2fr 1fr; }
+    .card.featured { border-color: var(--accent); }
+    .card ol { margin: 8px 0 12px; padding-left: 20px; color: var(--muted); font-size: 15px; }
+    .card ol li { margin: 6px 0; }
+    .card ol strong { color: var(--fg); }
+    .card.featured p + p { margin-top: 10px; }
+    .previous-list { margin: 0; padding-left: 20px; color: var(--muted); font-size: 15px; }
+    .previous-list li { margin: 8px 0; }
+    @media (max-width: 720px) { .cards-featured { grid-template-columns: 1fr; } }
     .card .cmd { margin-top: 12px; }
 
     pre {
@@ -298,9 +307,10 @@
       <nav class="site-nav" aria-label="Page contents">
         <a href="#how">How it works</a>
         <a href="#pieces">Pieces</a>
-        <a href="#courses">Courses</a>
+        <a href="#courses">The course</a>
         <a href="#chapter">Chapter loop</a>
         <a href="#start">Quick start</a>
+        <a href="#previous">Previous work</a>
         <a href="https://github.com/contract-hero/agentic-community-college">GitHub</a>
       </nav>
     </div>
@@ -321,7 +331,7 @@
         <div class="cta-row">
           <a class="btn btn-primary" href="#start">Get started</a>
           <a class="btn btn-secondary" href="https://github.com/contract-hero/agentic-community-college">View on GitHub</a>
-          <a class="btn btn-secondary" href="#courses">Browse courses</a>
+          <a class="btn btn-secondary" href="#courses">See the course</a>
         </div>
       </div>
     </section>
@@ -335,7 +345,7 @@
           artifact, and proves the whole feature with an end-to-end test and a summary.
         </p>
         <figure class="diagram">
-          <svg viewBox="0 0 680 360" role="img" aria-label="Architecture: Claude Code loads ACC, which discovers course plugins (acc-claude-sdk, acc-deepbook-course, acc-evm-wal, or your own) and runs lessons chapter by chapter: tests pass, one HTML artifact per chapter, then an end-to-end test and a summary.">
+          <svg viewBox="0 0 680 360" role="img" aria-label="Architecture: Claude Code loads ACC, which discovers course plugins (acc-claude-sdk, previous v0.2 courses, or your own) and runs lessons chapter by chapter: tests pass, one HTML artifact per chapter, then an end-to-end test and a summary.">
             <defs>
               <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
@@ -372,9 +382,9 @@
             <text x="150" y="260" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">docs &middot; chapters &middot; tests</text>
 
             <rect x="250" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
-            <text x="340" y="226" font-size="12" font-weight="600" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" fill="#0f172a">acc-deepbook-course</text>
-            <text x="340" y="246" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">+ acc-evm-wal &middot; v0.2 model</text>
-            <text x="340" y="260" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">migration to chapters pending</text>
+            <text x="340" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Previous work</text>
+            <text x="340" y="246" font-size="11" text-anchor="middle" font-family="ui-monospace,Menlo,monospace" fill="#475569">acc-deepbook-course &middot; acc-evm-wal</text>
+            <text x="340" y="260" font-size="11" text-anchor="middle" font-family="system-ui" fill="#475569">v0.2 model, pending migration</text>
 
             <rect x="440" y="204" width="180" height="64" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-dasharray="4 3"/>
             <text x="530" y="226" font-size="13" font-weight="600" text-anchor="middle" font-family="system-ui" fill="#0f172a">Your course</text>
@@ -423,47 +433,28 @@
 
     <section id="courses">
       <div class="wrap">
-        <h2>Courses available today</h2>
+        <h2>The course: build agents with the Claude Agent SDK</h2>
         <p class="section-lede">
-          Three course plugins are published in the <a href="https://github.com/contract-hero/plugin-marketplace">contract-hero marketplace</a>.
-          Install one alongside ACC and run its <code>start</code> command, or scaffold your own.
-          <code>acc-claude-sdk</code> is the first course on the v0.3 chapter model; the other two are on the v0.2 section model and are pending migration.
+          <a href="https://github.com/contract-hero/acc-claude-sdk"><code>acc-claude-sdk</code></a> is the first course on the
+          v0.3 chapter model. Lesson 1 builds the smallest useful agent in TypeScript; later lessons add sessions,
+          hooks, and subagents. Everything the agent writes is explained in an HTML artifact you keep.
         </p>
-        <div class="cards">
-          <article class="card">
-            <span class="tag">Claude Agent SDK &middot; v0.3</span>
+        <div class="cards cards-featured">
+          <article class="card featured">
+            <span class="tag">Claude Agent SDK &middot; TypeScript &middot; v0.3</span>
             <h3><a href="https://github.com/contract-hero/acc-claude-sdk"><code>acc-claude-sdk</code></a></h3>
+            <p>Lesson 1, <em>Your first agent</em>, in three chapters, each defined by its tests:</p>
+            <ol>
+              <li><strong>Run a query and read the result.</strong> <code>query()</code> returns an async iterable of typed messages; the <code>result</code> message is the contract.</li>
+              <li><strong>Give the agent a custom in-process tool.</strong> A Zod shape plus an async handler, served by <code>createSdkMcpServer()</code> and addressed as <code>mcp__notes__add_note</code>.</li>
+              <li><strong>Wrap it in a tiny CLI.</strong> Inject <code>query()</code> and the output streams so the CLI is testable offline; the result message drives the summary line.</li>
+            </ol>
             <p>
-              Build agents with the Claude Agent SDK, chapter by chapter. Each chapter is defined by its
-              tests; the conductor implements it, explains it with an artifact, and the lesson closes with
-              an end-to-end run. The first course on the v0.3 model.
+              Unit tests run offline against a fake message stream. The end-to-end test runs the real agent and
+              needs <code>ANTHROPIC_API_KEY</code>. Every chapter ends with an artifact; the lesson ends with a
+              summary page of the most important learnings.
             </p>
-            <p class="cmd"><code>/acc-claude-sdk:start</code></p>
-          </article>
-          <article class="card">
-            <span class="tag">Sui &middot; DeepBook &middot; v0.2 model</span>
-            <h3><a href="https://github.com/contract-hero/acc-deepbook-course"><code>acc-deepbook-course</code></a></h3>
-            <p>
-              Four hands-on lessons building Sui DeepBook integrations end-to-end:
-              place &amp; manage orders on a <code>BalanceManager</code>, swap straight over the CLOB,
-              borrow with a <code>FlashLoan</code> hot-potato, and run a two-sided market-maker bot.
-              Auto-bootstraps the <code>deepbook-sandbox</code> stack. Written for the v0.2 section model;
-              migration to v0.3 chapters is pending.
-            </p>
-            <p class="cmd"><code>/acc-deepbook-course:start</code></p>
-          </article>
-          <article class="card">
-            <span class="tag">Walrus &times; EVM &middot; v0.2 model</span>
-            <h3><a href="https://github.com/contract-hero/acc-evm-wal"><code>acc-evm-wal</code></a></h3>
-            <p>
-              Six lessons on Walrus decentralized storage from Solidity &amp; TypeScript:
-              anchor blob IDs on-chain, publish Walrus Sites, build an ENS-gated resolver,
-              back DAO proposals, ship a verifiable manifest client, and serve a
-              10K-token ERC-721 &mdash; all backed by Walrus. Foundry and pnpm
-              lessons, gated on their test suites. Written for the v0.2 section model;
-              migration to v0.3 chapters is pending.
-            </p>
-            <p class="cmd"><code>/acc-evm-wal:start</code></p>
+            <p class="cmd"><code>/plugin install acc-claude-sdk@contract-hero</code> then <code>/acc-claude-sdk:start</code></p>
           </article>
           <article class="card">
             <span class="tag">Bring your own</span>
@@ -471,7 +462,9 @@
             <p>
               Any plugin that declares <code>accContent</code> is a course. Scaffold one &mdash;
               <code>plugin.json</code>, probes, paths, and an empty lessons tree &mdash; then add
-              lessons from a topic and its docs.
+              lessons from a topic and its docs. The lesson creator curates the docs, plans the
+              chapters, writes the tests and the reference solution, and validates the lesson with a
+              learner sub-agent.
             </p>
             <p class="cmd"><code>/agentic-community-college:create-course</code></p>
           </article>
@@ -550,12 +543,9 @@
         <div class="step">
           <div class="n">2</div>
           <div>
-            <h3>Install a course</h3>
-            <p>Any plugin that declares <code>accContent</code> works. Three are published today; <a href="#courses">acc-claude-sdk</a> is the one on the v0.3 model:</p>
-            <pre><code>/plugin install acc-claude-sdk@contract-hero
-# v0.2-model courses, pending migration:
-/plugin install acc-deepbook-course@contract-hero
-/plugin install acc-evm-wal@contract-hero</code></pre>
+            <h3>Install the course</h3>
+            <p>Any plugin that declares <code>accContent</code> works. <a href="#courses">acc-claude-sdk</a> is the course built for the v0.3 model (the <a href="#previous">previous courses</a> are pending migration):</p>
+            <pre><code>/plugin install acc-claude-sdk@contract-hero</code></pre>
           </div>
         </div>
 
@@ -583,6 +573,19 @@
           for post-lesson publishing (<code>publish-html</code> on the summary artifact). It is optional: lessons and
           artifacts work without it.
         </aside>
+      </div>
+    </section>
+    <section id="previous">
+      <div class="wrap">
+        <h2>Previous work</h2>
+        <p class="section-lede">
+          Two courses were built on the v0.2 section model before the chapter model existed. They stay
+          published as prior work and do not run on ACC v0.3 until they are migrated to <code>chapters.json</code>.
+        </p>
+        <ul class="previous-list">
+          <li><a href="https://github.com/contract-hero/acc-deepbook-course"><code>acc-deepbook-course</code></a>: four Sui DeepBook lessons (orders on a <code>BalanceManager</code>, swaps over the CLOB, flash-loan arbitrage, a two-sided market-maker bot).</li>
+          <li><a href="https://github.com/contract-hero/acc-evm-wal"><code>acc-evm-wal</code></a>: six Walrus &times; EVM lessons (blob anchoring, Walrus Sites, an ENS-gated resolver, DAO proposals, a verifiable manifest client, a quilt-backed ERC-721).</li>
+        </ul>
       </div>
     </section>
   </main>
