@@ -36,13 +36,13 @@ Rules for every HTML artifact ACC produces at runtime: one page per chapter and 
 4. **The code.** 2 to 4 snippets, taken verbatim from the files written in the workspace during this chapter. Each snippet is a `<figure class="snippet">` with a one-line caption that names the file and says why the snippet matters. Wrap the code in `<pre><code>`. 5 to 25 lines per snippet. Cut with `// ...` where needed. Never rewrite code for the page.
 5. **Tests that prove it.** One list item per test in the chapter's test files: the test name in `<code>` plus one line on what it asserts. Read the names from the test files. Do not invent them.
 6. **Next.** One line on what the next chapter adds. On the last chapter, say the e2e gate runs next.
-7. **Footer navigation.** Relative links to the previous and next artifact files. Omit "previous" on chapter 1. On the last chapter, the "next" link points to `summary.html`.
+7. **Footer navigation.** Relative links to the previous and next artifact files. The filenames come from `artifact_nav` in the `nextChapter` envelope: `prev` is absent on chapter 1, and `next` is `summary.html` on the last chapter.
 
 ## 4. Summary page structure (fixed order)
 
 1. **Header.** Lesson title, completed date, e2e status: `passed`, `skipped for credentials`, or `failed`. Color the status with `--good`, `--warn`, or `--bad`. When the e2e was skipped, name the missing variable.
 2. **What you built.** One paragraph plus one inline SVG of the final architecture: every chapter's contribution in one picture. At most 10 boxes.
-3. **Chapters.** One card per chapter, in order, linking to `NN-<id>.html`. Each card shows the chapter number, the title, and the key idea.
+3. **Chapters.** One card per entry of the `artifacts` map in the `nextChapter` done envelope, in chapter order, linking to `NN-<id>.html`. Each card shows the chapter number, the title, and the key idea.
 4. **Most important learnings.** 5 to 8 bullets. Each bullet is one concrete takeaway the learner can restate without the page.
 5. **Where to go next.** 3 to 5 pointers: docs sections not covered, features to add, ideas to extend the app.
 

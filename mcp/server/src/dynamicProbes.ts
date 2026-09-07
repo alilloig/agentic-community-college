@@ -12,6 +12,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { ProbeResult, ProbeOptions, ShellAction, SpawnFn } from './preflight.js';
 import type { CourseProbeDecl, ProbeRemediation } from './schemas/courseProbes.js';
+import { readClaudeSettings } from './outputStyle.js';
 
 const DEFAULT_HTTP_TIMEOUT_MS = 5000;
 const DEFAULT_SHELL_TIMEOUT_MS = 10_000;
@@ -187,27 +188,17 @@ async function probeClaudePluginEnabled(
   decl: Extract<CourseProbeDecl, { kind: 'claude-plugin-enabled' }>,
   opts: DynamicProbeOptions,
 ): Promise<ProbeResult> {
-  const home = opts.homeDir ?? os.homedir();
-  const settingsPath = path.join(home, '.claude', 'settings.json');
-  let raw: string;
-  try {
-    raw = fs.readFileSync(settingsPath, 'utf8');
-  } catch {
-    return { pass: false, message: `${decl.message_fail} (settings.json not found at ${settingsPath})` };
+  const settings = readClaudeSettings(opts.homeDir);
+  if (!settings.ok) {
+    const detail =
+      settings.kind === 'missing'
+        ? `settings.json not found at ${settings.file}`
+        : settings.kind === 'parse-error'
+          ? `settings.json parse error: ${settings.detail}`
+          : 'settings.json is not an object';
+    return { pass: false, message: `${decl.message_fail} (${detail})` };
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    return {
-      pass: false,
-      message: `${decl.message_fail} (settings.json parse error: ${(err as Error).message})`,
-    };
-  }
-  if (typeof parsed !== 'object' || parsed === null) {
-    return { pass: false, message: `${decl.message_fail} (settings.json is not an object)` };
-  }
-  const enabled = (parsed as Record<string, unknown>)['enabledPlugins'];
+  const enabled = settings.settings['enabledPlugins'];
   if (typeof enabled !== 'object' || enabled === null || Array.isArray(enabled)) {
     return { pass: false, message: `${decl.message_fail} (enabledPlugins missing or wrong shape)` };
   }

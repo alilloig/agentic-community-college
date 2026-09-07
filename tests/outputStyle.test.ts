@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   getOutputStyleStatus,
-  readActiveOutputStyle,
+  isClaudePluginEnabled,
   writeOutputStyle,
   RECOMMENDED_OUTPUT_STYLE,
 } from '../mcp/server/src/outputStyle.js';
@@ -69,10 +69,13 @@ describe('getOutputStyleStatus', () => {
     expect(s.ok).toBe(false);
   });
 
-  it('readActiveOutputStyle mirrors the active value', () => {
-    expect(readActiveOutputStyle(tempHome)).toBeNull();
-    writeSettings(JSON.stringify({ outputStyle: 'Concise' }));
-    expect(readActiveOutputStyle(tempHome)).toBe('Concise');
+  it('isClaudePluginEnabled reads enabledPlugins strictly', () => {
+    expect(isClaudePluginEnabled('toolkit@contract-hero', tempHome)).toBe(false);
+    writeSettings(JSON.stringify({ enabledPlugins: { 'toolkit@contract-hero': true, 'other@x': 'yes' } }));
+    expect(isClaudePluginEnabled('toolkit@contract-hero', tempHome)).toBe(true);
+    expect(isClaudePluginEnabled('other@x', tempHome)).toBe(false);
+    writeSettings(JSON.stringify({ enabledPlugins: [] }));
+    expect(isClaudePluginEnabled('toolkit@contract-hero', tempHome)).toBe(false);
   });
 });
 

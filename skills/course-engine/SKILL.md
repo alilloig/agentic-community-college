@@ -5,7 +5,7 @@ description: ACC's session-driver skill, invoked by each course plugin's start c
 
 # Course Engine Skill
 
-Follow the six steps in order. Keep your narration terse. The conductor owns the learner-facing voice after step 6.
+Follow the six steps in order. Keep your narration terse.
 
 ## 1. Probe the session
 
@@ -19,7 +19,7 @@ Render:
 - **Lesson catalog**: each filtered `result.lessons` entry with `namespaced_slug`, `title`, `summary`, and `chapter_count`, grouped by `course_name`. If empty, render `result.warnings` and stop.
 - **Warnings**: each entry's `kind` + `message` when `result.warnings` is non-empty.
 
-`start` never runs preflight probes. It returns `preflight: { skipped: true }` and `state: null`. Probes run in step 4, only for the picked lesson.
+`start` never runs probes. Probes run in step 4, only for the picked lesson.
 
 ## 2. Output style
 
@@ -45,7 +45,7 @@ If `result.ok` is false, surface `result.errors` verbatim and stop.
 If `result.ok` is true:
 
 - Render `result.description` verbatim when present. It is the lesson's `description.md`: what the learner is about to build, prerequisites, time.
-- If `result.workspaceCreated === true`, say the workspace was seeded at `result.workspacePath` with the scaffold and the tests, without the solution files. If `result.workspaceArchivedTo` is set, say an older workspace was archived because the host content changed.
+- If `result.workspaceCreated === true`, say the workspace was seeded at `result.workspacePath` with the scaffold and the tests, without the solution files listed in `result.workspaceStrippedFiles`. If `result.workspaceArchivedTo` is set, say an older workspace was archived because the host content changed.
 
 ### 3a. First-run workspace setup
 

@@ -23,24 +23,41 @@ Keep chat prose terse. All depth goes into the HTML artifacts.
 
 Two MCP tools drive the runtime. The tools list pins them by long-form id. In prose they are `nextChapter` and `verifyChapter`.
 
-`nextChapter({ projectRoot })` returns:
+`nextChapter({ projectRoot })` returns one of two envelopes.
+
+While a chapter is pending:
 
 ```
-ok, done, completed, total, index,
+ok, done: false, completed: false, total, index,
 chapter: { id, title, brief, key_idea, expected_files, tests, verification },
-docs_dir, workspace_path, artifact_path, artifact_conventions_path,
-summary_artifact_path,
-final_verification        // only when done && !completed
+docs_dir, workspace_path, artifact_path,
+artifact_nav: { prev?, next },
+artifact_conventions_path
 ```
 
 - `index` is 0-based. Say "Chapter `index + 1` of `total`" to the learner.
 - `chapter.brief` is the chapter brief markdown, already personalized.
-- `chapter.verification` is `{ mode, command, cwd? }`. `cwd` is workspace-relative and defaults to `.`.
+- `chapter.verification` is `{ mode, command, cwd }`, fully resolved by the MCP. `cwd` is always present and relative to `workspace_path`. Never compute a cwd yourself.
 - `chapter.tests` and `chapter.expected_files` are workspace-relative paths.
 - `docs_dir` is the absolute path of the lesson's curated docs. It is absent when the lesson ships no docs.
 - `artifact_path` is the absolute path where this chapter's artifact must be written.
+- `artifact_nav` holds the relative filenames for the footer links: `prev` (absent on chapter 1) and `next` (`summary.html` on the last chapter).
 - `artifact_conventions_path` is the absolute path of ACC's artifact conventions file. Read it before you write any artifact.
+
+When the cursor is past the last chapter:
+
+```
+ok, done: true, completed, total, index,
+docs_dir, workspace_path, artifact_conventions_path,
+summary_artifact_path,
+artifacts: { "<chapter id>": "<absolute path>", summary? },
+publish_available,
+final_verification        // only when completed is false
+```
+
 - `summary_artifact_path` is the absolute path of the lesson summary artifact.
+- `artifacts` maps each recorded chapter id to its artifact path. It is the source for the summary page cards.
+- `publish_available` is true when the `toolkit@contract-hero` plugin is enabled.
 
 `verifyChapter({ projectRoot })` returns:
 
@@ -64,15 +81,14 @@ Repeat until `nextChapter` returns `done: true`.
 3. **Implement.**
    - Read the chapter's test files (`chapter.tests`, under `workspace_path`) and the docs the brief points at (under `docs_dir`; start with `docs_dir/INDEX.md`).
    - Edit only the files in `chapter.expected_files`. Every path is relative to `workspace_path`. Never edit a file outside `workspace_path`.
-   - Run the chapter's verification with Bash: `cd <workspace_path>/<verification.cwd> && <verification.command>`. Repeat edit + run until the command exits 0.
+   - Run the chapter's verification with Bash: `cd <workspace_path>/<verification.cwd> && <verification.command>`. The envelope already resolved `verification.cwd`. Repeat edit + run until the command exits 0.
    - Stop after 5 failed attempts. Show the last output and call `AskUserQuestion` with `header`: "Stuck", `question`: "The chapter tests still fail after 5 attempts. How do you want to proceed?", options: `"Keep trying"`, `"Walk me through the failing test"`, `"Pause the lesson here"`.
    - Narrate at most one or two sentences per attempt. The artifact carries the explanation.
 
 4. **Explain.** Write the chapter artifact at `artifact_path`.
-   - Read `artifact_conventions_path` first. Follow it exactly: one self-contained HTML file, the ACC dark theme tokens, the fixed section order.
-   - Take the code snippets verbatim from the files you wrote in `workspace_path`. HTML-escape them.
-   - Draw the "How it works" SVG for this chapter's code by hand. At most 8 boxes.
-   - List each test from `chapter.tests` with one line on what it asserts.
+   - Read `artifact_conventions_path` first and follow it exactly.
+   - Take the snippets verbatim from the files you wrote in `workspace_path`.
+   - Use `artifact_nav` for the footer links.
    - Tell the learner the artifact path once, as a `file://` link.
 
 5. **Verify.** Call `verifyChapter({ projectRoot })`. This is the official gate.
@@ -95,9 +111,9 @@ When `nextChapter` returns `done: true`:
   4. `pass: false`: show `output` and call `AskUserQuestion` with the same options as "Verify failed". Never auto-retry.
 - If `completed` is true, the e2e passed in an earlier session. Skip the gate.
 
-Then write the summary artifact at `summary_artifact_path`. Follow the "Summary page" part of the conventions file. Use `Glob` on `<workspace_path>/artifacts/*.html` to link every chapter artifact. State the e2e status in the header: passed, skipped for credentials, or failed. Then call `verifyChapter({ projectRoot })` once more: after completion it re-runs nothing and records `summary.html` in state (`artifact_recorded: true`).
+Then write the summary artifact at `summary_artifact_path`. Follow the "Summary page" part of the conventions file. Build one chapter card per entry of the `artifacts` map, in chapter order. State the e2e status in the header: passed, skipped for credentials, or failed. Then call `verifyChapter({ projectRoot })` once more so `summary.html` gets recorded (`artifact_recorded: true`). After completion the call re-runs nothing.
 
-Finally, read `~/.claude/settings.json`. If `enabledPlugins["toolkit@contract-hero"]` is `true`, say: "The lesson artifacts are in `<workspace_path>/artifacts/`. Run `/publish-html` on `summary.html` for a shareable URL." If the flag is missing or false, state only the artifacts path. Never invoke `publish-html` yourself. The skill runs its own sensitivity check, and only the learner can trigger it.
+Finally, offer publishing only when `publish_available` is true: "The lesson artifacts are in `<workspace_path>/artifacts/`. Run `/publish-html` on `summary.html` for a shareable URL." When it is false, state only the artifacts path. Never invoke `publish-html` yourself. The skill runs its own sensitivity check, and only the learner can trigger it.
 
 ## Rules
 
@@ -106,4 +122,3 @@ Finally, read `~/.claude/settings.json`. If `enabledPlugins["toolkit@contract-he
 - **Edit only `expected_files`, only inside `workspace_path`.** State files under `.acc/` belong to the MCP tools.
 - **Never read the lesson's `reference-app/`.** The workspace holds scaffold and tests. You write the solution from the brief, the tests, and the docs.
 - **Retired tools, do not call them.** `setOutputMode`, `advanceArtifact`, `nextSection`, `verifySection`, `selectStyle`, `requestHint`, `nextSpot`, `verifySpot`, and `getNextPrompt` are gone from the runtime. If you reach for one, you are using a stale memory of an older ACC.
-- **No output modes.** ACC has no learning or explanatory mode anymore. You always implement; the learner always reads.

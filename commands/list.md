@@ -5,11 +5,8 @@ List the ACC course plugins discovered on this machine and their lesson catalogs
 When the user invokes this:
 
 1. Call the `start` MCP tool with `projectRoot` set to the user's working directory.
-2. Render the response in three parts:
-   - **Output style**: `result.outputStyle` is `{ active, recommended: "Concise", ok }`. If `ok` is false, say in one line that ACC recommends the `Concise` style and that the course's start command offers to set it. Informational only. The catalog still renders.
-   - **Discovered courses**: `result.courses` is the list of plugin keys ACC sees. One bullet per course.
-   - **Lesson catalog**: `result.lessons`, grouped by `course_name`. For each lesson show `namespaced_slug`, `title`, `summary`, and `chapter_count`.
-3. **Warnings**: if `result.warnings` includes any `course-plugin-*` or `installed-plugins-*` kinds, render each warning's `kind` + `message` so the user can fix bad manifests before starting a lesson.
+2. Render `result` exactly as the `course-engine` skill's step 1 describes, with no course filter.
+3. Add one line about the output style: when `result.outputStyle.ok` is false, say ACC recommends the `Concise` style and that the course's start command offers to set it. Informational only. The catalog still renders.
 
 If the catalog is empty:
 

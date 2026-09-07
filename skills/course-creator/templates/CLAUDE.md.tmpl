@@ -45,12 +45,6 @@ Probe ids are unique within this course. Lessons reference them in `lesson.json:
 
 ## How a session runs
 
-1. User runs `/{{ name }}:start` from their `projectRoot`.
-2. ACC's `course-engine` calls `start`: discovers this plugin, validates every lesson manifest pair and the probes block, renders the catalog, and reports the active output style. If it is not `Concise`, the skill offers `setOutputStyle`.
-3. User picks a namespaced slug. `selectLesson` mints v5 state and seeds the workspace.
-4. The course-engine runs the lesson's prerequisites via `runPreflightProbe`, asking before any remediation.
-5. User answers personalization. `setPersonalization` persists it (`{}` accepts defaults).
-6. The `course-conductor` agent loops: `nextChapter`, tell, implement until the chapter's verification passes, write the chapter artifact, `verifyChapter`, pause.
-7. After the last chapter, `verifyChapter` runs `final_verification` (the e2e) and the conductor writes the summary artifact.
+`/{{ name }}:start` hands the session to ACC's `course-engine` skill, which documents every step from the catalog to the chapter loop.
 
 ACC's 8 MCP tools: `start`, `runPreflightProbe`, `selectLesson`, `setPersonalization`, `setOutputStyle`, `nextChapter`, `verifyChapter`, `configureWorkspace`.

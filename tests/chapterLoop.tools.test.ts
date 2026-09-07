@@ -141,7 +141,6 @@ describe('chapter loop (v0.3)', () => {
   it('selectLesson seeds the workspace without the solution files', async () => {
     const r = await runSelectLesson({ projectRoot, slug: NAMESPACED, homeDir: tempHome });
     expect(r.ok, JSON.stringify(r.errors)).toBe(true);
-    expect(r.chapterCount).toBe(2);
     expect(r.workspaceCreated).toBe(true);
     expect(r.workspaceStrippedFiles).toEqual(['src/answer.ts', 'src/extra']);
     expect(r.description).toContain('What you will build');
@@ -176,11 +175,17 @@ describe('chapter loop (v0.3)', () => {
     expect(c1.chapter?.id).toBe('c01-answer');
     expect(c1.chapter?.brief).toContain('Say hola and return 42');
     expect(c1.chapter?.tests).toEqual(['tests/answer.test.ts']);
-    expect(c1.chapter?.verification.command).toBe('fake-test tests/answer.test.ts');
+    expect(c1.chapter?.verification).toEqual({
+      mode: 'test-suite',
+      command: 'fake-test tests/answer.test.ts',
+      cwd: '.',
+    });
     expect(c1.workspace_path).toBe(ws);
     expect(c1.docs_dir).toMatch(/lessons\/01-demo\/docs\/?$/);
     expect(c1.artifact_path).toBe(path.join(ws, 'artifacts', '01-c01-answer.html'));
-    expect(c1.summary_artifact_path).toBe(path.join(ws, 'artifacts', 'summary.html'));
+    expect(c1.artifact_nav).toEqual({ next: '02-c02-extra.html' });
+    expect(c1.summary_artifact_path).toBeUndefined();
+    expect(c1.artifacts).toBeUndefined();
     expect(c1.artifact_conventions_path).toMatch(/skills\/chapter-artifact\/references\/conventions\.md$/);
     expect(c1.final_verification).toBeUndefined();
 
@@ -207,6 +212,7 @@ describe('chapter loop (v0.3)', () => {
     const c2 = await runNextChapter({ projectRoot });
     expect(c2.chapter?.id).toBe('c02-extra');
     expect(c2.index).toBe(1);
+    expect(c2.artifact_nav).toEqual({ prev: '01-c01-answer.html', next: 'summary.html' });
     const pass2 = await runVerifyChapter({ projectRoot, spawn: stubSpawn(0) });
     expect(pass2.pass).toBe(true);
     expect(pass2.chapter_cursor).toBe(2);
@@ -218,7 +224,11 @@ describe('chapter loop (v0.3)', () => {
     expect(pending.done).toBe(true);
     expect(pending.completed).toBe(false);
     expect(pending.chapter).toBeUndefined();
-    expect(pending.final_verification?.command).toBe('fake-test');
+    expect(pending.artifact_path).toBeUndefined();
+    expect(pending.final_verification).toEqual({ mode: 'test-suite', command: 'fake-test', cwd: '.' });
+    expect(pending.summary_artifact_path).toBe(path.join(ws, 'artifacts', 'summary.html'));
+    expect(pending.artifacts).toEqual({ 'c01-answer': c1.artifact_path });
+    expect(pending.publish_available).toBe(false);
 
     // e2e fails → not completed
     const e2eFail = await runVerifyChapter({ projectRoot, spawn: stubSpawn(1, 'e2e broke') });
@@ -241,6 +251,7 @@ describe('chapter loop (v0.3)', () => {
     expect(after.done).toBe(true);
     expect(after.completed).toBe(true);
     expect(after.final_verification).toBeUndefined();
+    expect(after.artifacts).toEqual({ 'c01-answer': c1.artifact_path });
 
     // Re-entrant verify after completion never re-runs anything. Without a
     // summary file it reports artifact_recorded: false; once the conductor

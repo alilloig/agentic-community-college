@@ -128,7 +128,7 @@ describe('scanCourses', () => {
     const course: DiscoveredCourse = { name: 'legacy@local', dir: lessonsRoot, lessonsRoot, probes: [], paths: [] };
     const result = await scanCourses([course]);
     expect(result.lessons).toHaveLength(0);
-    const w = result.warnings.find((x) => x.kind === 'missing-phases-json');
+    const w = result.warnings.find((x) => x.kind === 'missing-chapters-json');
     expect(w?.message).toMatch(/chapters\.json/);
     expect(w?.message).toMatch(/v0\.2/);
   });

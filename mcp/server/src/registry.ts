@@ -136,7 +136,7 @@ export function scanLessonsRoot(
         ? ' This lesson uses the v0.2 sections.json model; migrate it to chapters.json (ACC v0.3).'
         : '';
       result.warnings.push({
-        kind: 'missing-phases-json',
+        kind: 'missing-chapters-json',
         message: `No chapters.json found in ${lessonDir}.${legacyHint}`,
         path: lessonDir,
       });
@@ -148,7 +148,7 @@ export function scanLessonsRoot(
       chaptersParsed = JSON.parse(chaptersRaw);
     } catch (err) {
       result.warnings.push({
-        kind: 'malformed-phases-json',
+        kind: 'malformed-chapters-json',
         message: `Failed to parse ${chaptersJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
         path: chaptersJsonFile,
       });
@@ -158,7 +158,7 @@ export function scanLessonsRoot(
     const chaptersValidation = validateChapters(chaptersParsed);
     if (!chaptersValidation.ok) {
       result.warnings.push({
-        kind: 'invalid-phases-json',
+        kind: 'invalid-chapters-json',
         message: `Schema validation failed for ${chaptersJsonFile}: ${chaptersValidation.error}`,
         path: chaptersJsonFile,
       });

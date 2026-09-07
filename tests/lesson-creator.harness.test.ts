@@ -93,9 +93,6 @@ describe('lesson-creator skill: templates', () => {
     expect(Object.keys(parsed.workspace).sort()).toEqual(
       ['files', 'host', 'host_install_command', 'solution_files', 'verification_cwd'].sort(),
     );
-    expect(parsed).not.toHaveProperty('build_command');
-    expect(parsed).not.toHaveProperty('test_command');
-    expect(parsed).not.toHaveProperty('artifact');
 
     const r = validateLesson(parsed);
     expect(r.ok, r.ok ? '' : r.error).toBe(true);
@@ -200,6 +197,6 @@ describe('lesson-creator skill: sample lesson cross-check', () => {
     };
     const r = validateChapters(chaptersJson);
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.error.length).toBeGreaterThan(0);
+    if (!r.ok) expect(r.error).toMatch(/mode/);
   });
 });

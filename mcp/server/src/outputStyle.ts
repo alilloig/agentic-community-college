@@ -1,10 +1,11 @@
-// outputStyle.ts — advisory check + opt-in writer for the Claude Code output
-// style in `~/.claude/settings.json`.
+// outputStyle.ts — the one reader of `~/.claude/settings.json`, plus the
+// advisory output-style check and its opt-in writer.
 //
 // ACC v0.3 recommends the built-in `Concise` style: the chat stays short and
 // every explanation lives in the HTML artifacts. Nothing here gates a tool.
 // `start` reports the status; `setOutputStyle` writes the value only when the
-// learner said yes.
+// learner said yes. `dynamicProbes` and `nextChapter` reuse
+// `readClaudeSettings` / `isClaudePluginEnabled` for plugin checks.
 
 import * as fs from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
@@ -13,6 +14,40 @@ import * as path from 'node:path';
 import { atomicWriteFile } from './atomicWrite.js';
 
 export const RECOMMENDED_OUTPUT_STYLE = 'Concise';
+
+export type ClaudeSettingsResult =
+  | { ok: true; file: string; settings: Record<string, unknown> }
+  | { ok: false; file: string; kind: 'missing' | 'parse-error' | 'not-object'; detail: string };
+
+/** Read and parse `~/.claude/settings.json` without throwing. */
+export function readClaudeSettings(homeDir?: string): ClaudeSettingsResult {
+  const file = path.join(homeDir ?? os.homedir(), '.claude', 'settings.json');
+  let raw: string;
+  try {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    return { ok: false, file, kind: 'missing', detail: (err as Error).message };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    return { ok: false, file, kind: 'parse-error', detail: (err as Error).message };
+  }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, file, kind: 'not-object', detail: 'settings.json must contain a JSON object' };
+  }
+  return { ok: true, file, settings: parsed as Record<string, unknown> };
+}
+
+/** True iff `enabledPlugins[pluginKey] === true` in settings.json. */
+export function isClaudePluginEnabled(pluginKey: string, homeDir?: string): boolean {
+  const settings = readClaudeSettings(homeDir);
+  if (!settings.ok) return false;
+  const enabled = settings.settings['enabledPlugins'];
+  if (typeof enabled !== 'object' || enabled === null || Array.isArray(enabled)) return false;
+  return (enabled as Record<string, unknown>)[pluginKey] === true;
+}
 
 export interface OutputStyleWarning {
   kind: 'settings-file-missing' | 'settings-parse-error';
@@ -28,64 +63,23 @@ export interface OutputStyleStatus {
   warning?: OutputStyleWarning;
 }
 
-export function settingsPath(homeDir?: string): string {
-  return path.join(homeDir ?? os.homedir(), '.claude', 'settings.json');
-}
-
-interface ReadSettingsResult {
-  parsed: Record<string, unknown> | null;
-  warning?: OutputStyleWarning;
-}
-
-function readSettings(homeDir?: string): ReadSettingsResult {
-  const file = settingsPath(homeDir);
-  let raw: string;
-  try {
-    raw = fs.readFileSync(file, 'utf8');
-  } catch {
-    return {
-      parsed: null,
-      warning: { kind: 'settings-file-missing', message: `Settings file not found at ${file}` },
-    };
+function warningFor(result: Extract<ClaudeSettingsResult, { ok: false }>): OutputStyleWarning {
+  if (result.kind === 'missing') {
+    return { kind: 'settings-file-missing', message: `Settings file not found at ${result.file}` };
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch (err) {
-    return {
-      parsed: null,
-      warning: {
-        kind: 'settings-parse-error',
-        message: `Failed to parse ${file}: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
-  }
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return {
-      parsed: null,
-      warning: { kind: 'settings-parse-error', message: `${file} must contain a JSON object` },
-    };
-  }
-  return { parsed: parsed as Record<string, unknown> };
-}
-
-/** Read the active output style name. `null` when unset or unreadable. */
-export function readActiveOutputStyle(homeDir?: string): string | null {
-  const { parsed } = readSettings(homeDir);
-  const style = parsed?.['outputStyle'];
-  return typeof style === 'string' && style.length > 0 ? style : null;
+  return { kind: 'settings-parse-error', message: `Failed to parse ${result.file}: ${result.detail}` };
 }
 
 export function getOutputStyleStatus(homeDir?: string): OutputStyleStatus {
-  const { parsed, warning } = readSettings(homeDir);
-  const raw = parsed?.['outputStyle'];
+  const settings = readClaudeSettings(homeDir);
+  const raw = settings.ok ? settings.settings['outputStyle'] : undefined;
   const active = typeof raw === 'string' && raw.length > 0 ? raw : null;
   const status: OutputStyleStatus = {
     active,
     recommended: RECOMMENDED_OUTPUT_STYLE,
     ok: active !== null && active.toLowerCase() === RECOMMENDED_OUTPUT_STYLE.toLowerCase(),
   };
-  if (warning) status.warning = warning;
+  if (!settings.ok) status.warning = warningFor(settings);
   return status;
 }
 
@@ -102,21 +96,23 @@ export async function writeOutputStyle(
   style: string,
   homeDir?: string,
 ): Promise<WriteOutputStyleResult> {
-  const file = settingsPath(homeDir);
-  const { parsed, warning } = readSettings(homeDir);
-  if (warning && warning.kind === 'settings-parse-error') {
-    return { ok: false, error: warning.message };
+  const read = readClaudeSettings(homeDir);
+  if (!read.ok && read.kind !== 'missing') {
+    return { ok: false, error: warningFor(read).message };
   }
-  const settings = parsed ?? {};
+  const file = read.file;
+  const settings = read.ok ? read.settings : {};
   const previousRaw = settings['outputStyle'];
   const previous = typeof previousRaw === 'string' ? previousRaw : null;
   settings['outputStyle'] = style;
 
   let mode = 0o600;
-  try {
-    mode = fs.statSync(file).mode & 0o777;
-  } catch {
-    /* new file */
+  if (read.ok) {
+    try {
+      mode = (await fsPromises.stat(file)).mode & 0o777;
+    } catch {
+      /* keep the private default */
+    }
   }
   try {
     await fsPromises.mkdir(path.dirname(file), { recursive: true });

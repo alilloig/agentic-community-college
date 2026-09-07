@@ -11,7 +11,11 @@
 //      Phase 0 documentation snapshot.
 //
 // Unknown fields are ignored. Path safety: every relative-path field goes
-// through `isLessonRelPath`, which rejects leading slashes and `..` segments.
+// through `pathSafety.isSafeRelPath`, which rejects leading slashes and `..`
+// segments.
+
+import { isFilenameSafeId, isSafeRelPath } from '../pathSafety.js';
+import { validateRelPathList, type ValidationResult } from './common.js';
 
 export interface PersonalizationRangeInteger {
   min: number;
@@ -59,15 +63,6 @@ export interface LessonData {
   workspace?: WorkspaceConfig;
 }
 
-type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-export function isLessonRelPath(p: string): boolean {
-  if (p.length === 0) return false;
-  if (p.startsWith('/') || p.startsWith('\\')) return false;
-  const segments = p.replace(/\\/g, '/').split('/');
-  return !segments.includes('..');
-}
-
 function isInteger(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n) && Number.isInteger(n);
 }
@@ -81,7 +76,7 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
   if (typeof obj['slug'] !== 'string' || obj['slug'].length === 0) {
     return { ok: false, error: 'Missing required field: slug' };
   }
-  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(obj['slug'] as string)) {
+  if (!isFilenameSafeId(obj['slug'] as string)) {
     return {
       ok: false,
       error: `slug '${obj['slug']}' must be filename-safe ([A-Za-z0-9._-], no leading dot)`,
@@ -190,7 +185,7 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     if (typeof obj['docs'] !== 'string' || (obj['docs'] as string).length === 0) {
       return { ok: false, error: 'docs must be a non-empty string when present' };
     }
-    if (!isLessonRelPath(obj['docs'] as string)) {
+    if (!isSafeRelPath(obj['docs'] as string)) {
       return {
         ok: false,
         error: `docs '${obj['docs']}' must be a relative path with no '..' segments and no leading '/'`,
@@ -208,7 +203,7 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     if (typeof w['host'] !== 'string' || w['host'].length === 0) {
       return { ok: false, error: 'workspace.host must be a non-empty string' };
     }
-    if (!isLessonRelPath(w['host'] as string)) {
+    if (!isSafeRelPath(w['host'] as string)) {
       return {
         ok: false,
         error: `workspace.host '${w['host']}' must be a relative path with no '..' segments and no leading '/'`,
@@ -228,7 +223,7 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
       if (typeof fo['path'] !== 'string' || typeof fo['starter'] !== 'string') {
         return { ok: false, error: 'workspace.files[].path and .starter must be strings' };
       }
-      if (!isLessonRelPath(fo['path'] as string) || !isLessonRelPath(fo['starter'] as string)) {
+      if (!isSafeRelPath(fo['path'] as string) || !isSafeRelPath(fo['starter'] as string)) {
         return {
           ok: false,
           error: `workspace.files[] paths must be relative with no '..' segments and no leading '/'`,
@@ -237,23 +232,9 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
       files.push({ path: fo['path'] as string, starter: fo['starter'] as string });
     }
 
-    const rawSolution = w['solution_files'] ?? [];
-    if (!Array.isArray(rawSolution)) {
-      return { ok: false, error: 'workspace.solution_files must be an array' };
-    }
-    const solution_files: string[] = [];
-    for (const s of rawSolution as unknown[]) {
-      if (typeof s !== 'string' || s.length === 0) {
-        return { ok: false, error: 'workspace.solution_files entries must be non-empty strings' };
-      }
-      if (!isLessonRelPath(s)) {
-        return {
-          ok: false,
-          error: `workspace.solution_files entry '${s}' must be a relative path with no '..' segments and no leading '/'`,
-        };
-      }
-      solution_files.push(s);
-    }
+    const solutionFiles = validateRelPathList(w['solution_files'], 'workspace.solution_files');
+    if (!solutionFiles.ok) return solutionFiles;
+    const solution_files = solutionFiles.value;
 
     workspace = { host: w['host'] as string, files, solution_files };
     if (w['host_install_command'] !== undefined) {
@@ -266,7 +247,7 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
       if (typeof w['verification_cwd'] !== 'string') {
         return { ok: false, error: 'workspace.verification_cwd must be a string' };
       }
-      if (!isLessonRelPath(w['verification_cwd'] as string)) {
+      if (!isSafeRelPath(w['verification_cwd'] as string)) {
         return {
           ok: false,
           error: `workspace.verification_cwd '${w['verification_cwd']}' must be a relative path with no '..' segments and no leading '/'`,

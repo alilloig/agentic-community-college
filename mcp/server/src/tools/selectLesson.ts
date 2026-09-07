@@ -30,8 +30,6 @@ export interface SelectLessonResult {
    * advancing to setPersonalization. Empty/absent when the lesson declares
    * no prerequisites. */
   prerequisites?: string[];
-  /** Number of chapters in the picked lesson. */
-  chapterCount?: number;
   workspacePath?: string;
   workspaceCreated?: boolean;
   workspaceArchivedTo?: string;
@@ -76,7 +74,7 @@ export async function runSelectLesson({
   if (!loaded.ok) {
     return { ok: false, errors: [loaded.error] };
   }
-  const { lesson, chapters, info } = loaded;
+  const { lesson, info } = loaded;
 
   // Resolve the owning course's `${paths.<id>}` declarations into absolute
   // paths so we can both surface them to the conductor and inject them as
@@ -175,10 +173,7 @@ export async function runSelectLesson({
     }
   }
 
-  const result: SelectLessonResult = {
-    ok: true,
-    chapterCount: chapters.chapters.length,
-  };
+  const result: SelectLessonResult = { ok: true };
   if (description !== undefined) result.description = description;
   if (personalizationPrompts.length > 0) result.personalizationPrompts = personalizationPrompts;
   if (lesson.prerequisites && lesson.prerequisites.length > 0) {

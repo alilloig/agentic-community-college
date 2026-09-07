@@ -14,20 +14,23 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_ROOT = path.resolve(__dirname, '..', 'skills', 'chapter-artifact');
 const TEMPLATES_DIR = path.join(SKILL_ROOT, 'templates');
+const CONVENTIONS_PATH = path.join(SKILL_ROOT, 'references', 'conventions.md');
 
-const TOKENS: Record<string, string> = {
-  '--bg': '#0e1117',
-  '--panel': '#161b22',
-  '--panel-2': '#1f242d',
-  '--border': '#2a313c',
-  '--fg': '#d5d9e0',
-  '--muted': '#8b94a7',
-  '--accent': '#79b8ff',
-  '--good': '#6dd56d',
-  '--warn': '#e6c07b',
-  '--bad': '#e08585',
-  '--code-bg': '#0b0e13',
-};
+const TOKEN_COUNT = 11;
+
+/**
+ * references/conventions.md owns the dark-theme palette; the templates only
+ * copy it. Parse the css block in section 2 so a token edit there cannot
+ * silently diverge from the templates.
+ */
+function readConventionTokens(): [string, string][] {
+  const conv = fs.readFileSync(CONVENTIONS_PATH, 'utf8');
+  const block = /```css\n([\s\S]*?)```/.exec(conv);
+  if (!block) throw new Error(`no css token block in ${CONVENTIONS_PATH}`);
+  return [...block[1].matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-f]{3,8})/gi)].map((m) => [m[1], m[2]]);
+}
+
+const TOKENS = readConventionTokens();
 
 const CHAPTER_HEADINGS = ['What was built', 'How it works', 'The code', 'Tests that prove it', 'Next'];
 const SUMMARY_HEADINGS = ['What you built', 'Chapters', 'Most important learnings', 'Where to go next'];
@@ -68,8 +71,9 @@ describe.each([
     expect(markup).not.toMatch(/@font-face/i);
   });
 
-  it('declares the ACC dark-theme token block', () => {
-    for (const [name, value] of Object.entries(TOKENS)) {
+  it('declares every dark-theme token conventions.md prescribes', () => {
+    expect(TOKENS).toHaveLength(TOKEN_COUNT);
+    for (const [name, value] of TOKENS) {
       expect(html, `missing token ${name}: ${value}`).toMatch(new RegExp(`${escapeRe(name)}\\s*:\\s*${value}`, 'i'));
     }
   });
@@ -133,10 +137,8 @@ describe('chapter-artifact skill files', () => {
   });
 
   it('ships references/conventions.md with the token block and both page structures', () => {
-    const conv = fs.readFileSync(path.join(SKILL_ROOT, 'references', 'conventions.md'), 'utf8');
-    for (const [name, value] of Object.entries(TOKENS)) {
-      expect(conv).toMatch(new RegExp(`${escapeRe(name)}\\s*:\\s*${value}`, 'i'));
-    }
+    const conv = fs.readFileSync(CONVENTIONS_PATH, 'utf8');
+    expect(TOKENS).toHaveLength(TOKEN_COUNT);
     for (const heading of [...CHAPTER_HEADINGS, ...SUMMARY_HEADINGS]) {
       expect(conv, `conventions should describe "${heading}"`).toContain(heading);
     }

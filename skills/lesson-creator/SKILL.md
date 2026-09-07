@@ -162,4 +162,4 @@ If the user asks to skip Step 6 (`--skip-validation`), still write `validation.j
 }
 ```
 
-Never skip silently. Downstream tooling reads this file to detect unvalidated lessons.
+Never skip silently, so a reviewer can tell an unvalidated lesson apart from a validated one.

@@ -16,9 +16,9 @@ export type RegistryWarning =
   | { kind: 'missing-path-json'; message: string; path?: string; dir?: string }
   | { kind: 'malformed-path-json'; message: string; path?: string; dir?: string }
   | { kind: 'invalid-path-json'; message: string; path?: string; dir?: string }
-  | { kind: 'missing-phases-json'; message: string; path?: string; dir?: string }
-  | { kind: 'malformed-phases-json'; message: string; path?: string; dir?: string }
-  | { kind: 'invalid-phases-json'; message: string; path?: string; dir?: string };
+  | { kind: 'missing-chapters-json'; message: string; path?: string; dir?: string }
+  | { kind: 'malformed-chapters-json'; message: string; path?: string; dir?: string }
+  | { kind: 'invalid-chapters-json'; message: string; path?: string; dir?: string };
 
 // State warnings (formerly local to tools/start.ts)
 export interface StateCorruptWarning {
@@ -70,14 +70,6 @@ export type PreflightWarning =
   | PreflightDeployPreconditionFailedWarning
   | PreflightDeployTimeoutWarning;
 
-// Phase-engine warnings (new in cycle 4)
-export interface PhaseEngineLoadFailedWarning {
-  kind: 'phase-engine-phases-load-failed';
-  message: string;
-  slug: string;
-  reason: string;
-}
-
 export interface PersonalizationValidationFailedWarning {
   kind: 'personalization-validation-failed';
   message: string;
@@ -91,7 +83,6 @@ export interface VerificationModeUnsupportedWarning {
 }
 
 export type PhaseEngineWarning =
-  | PhaseEngineLoadFailedWarning
   | PersonalizationValidationFailedWarning
   | VerificationModeUnsupportedWarning;
 

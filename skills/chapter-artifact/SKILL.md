@@ -28,12 +28,7 @@ After the e2e gate, the conductor does the same with `templates/summary.html.tmp
 
 **Anyone reviewing an artifact.** Run the checklist. The most common defects: snippets rewritten instead of copied, a generic diagram instead of this chapter's flow, test names invented instead of read from the test files.
 
-## Rules in one screen
+## Rules
 
-- One self-contained HTML file. No `<script src>`, no `<link href>`, no `@import`, no web fonts, no images from URLs. Inline SVG only.
-- System font stack, dark theme with the ACC tokens, max-width 1100px, mobile responsive.
-- Chapter page, in order: header (lesson title, "Chapter N of M", chapter title, key idea), What was built, How it works (inline SVG, at most 8 boxes, drawn for this chapter), The code (2 to 4 verbatim snippets with a why-caption), Tests that prove it, Next, footer navigation.
-- Summary page, in order: header (lesson title, completed date, e2e status), What you built (paragraph + final architecture SVG), chapter cards linking `NN-<id>.html`, Most important learnings (5 to 8 bullets), Where to go next.
-- Prose stays short. The diagram and the snippets carry the explanation.
-
-The full text is in `references/conventions.md`. Read it before you write or judge a page.
+- `templates/chapter.html.tmpl` is the chapter page. `templates/summary.html.tmpl` is the lesson summary page.
+- Read `references/conventions.md` before you write or judge a page. Every rule lives there.

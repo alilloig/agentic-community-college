@@ -12,7 +12,6 @@ export type { StateWarning };
 export interface StartResult {
   /** Advisory: the active Claude Code output style vs. the recommended one. */
   outputStyle: OutputStyleStatus;
-  preflight: { skipped: true; reason: 'cycle-1' };
   /** Public lesson catalog, aggregated across every discovered course plugin. */
   lessons: LessonInfo[];
   /** Names of course plugins ACC sees enabled in `~/.claude/plugins/installed_plugins.json`. */
@@ -60,7 +59,6 @@ export async function runStart({ projectRoot }: { projectRoot: string }): Promis
 
   return {
     outputStyle,
-    preflight: { skipped: true, reason: 'cycle-1' },
     lessons: registry.lessons,
     courses: discovery.courses.map((c) => c.name),
     state,

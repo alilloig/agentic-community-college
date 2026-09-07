@@ -83,26 +83,9 @@ describe('agents/course-conductor.md frontmatter', () => {
     expect(fm.raw).toMatch(/^name:\s*course-conductor\s*$/m);
   });
 
-  it('has a non-empty tools list (regression: tools: [] strips all bindings)', () => {
-    expect(tools.length).toBeGreaterThan(0);
-  });
-
-  it('lists exactly the v0.3 tool set', () => {
+  it('lists exactly the v0.3 tool set (regression: tools: [] strips all bindings)', () => {
     expect(new Set(tools)).toEqual(new Set(EXPECTED_TOOLS));
     expect(tools).toHaveLength(EXPECTED_TOOLS.length);
-  });
-
-  it('lists nextChapter + verifyChapter under the canonical long form', () => {
-    expect(tools).toContain(`${MCP_PREFIX}nextChapter`);
-    expect(tools).toContain(`${MCP_PREFIX}verifyChapter`);
-  });
-
-  it('lists AskUserQuestion so the conductor can pause between chapters', () => {
-    expect(tools).toContain('AskUserQuestion');
-  });
-
-  it('lists Bash so the conductor can run the chapter verification command', () => {
-    expect(tools).toContain('Bash');
   });
 
   it('does NOT bind retired tool names (v0.2 section runtime + older phase/spot runtime)', () => {
@@ -137,8 +120,10 @@ describe('agents/course-conductor.md body', () => {
   it('documents the nextChapter envelope fields the loop depends on', () => {
     for (const field of [
       'artifact_path',
+      'artifact_nav',
       'artifact_conventions_path',
       'summary_artifact_path',
+      'artifacts',
       'final_verification',
       'docs_dir',
       'workspace_path',
@@ -164,7 +149,8 @@ describe('agents/course-conductor.md body', () => {
     expect(fm.body).toMatch(/never auto-retry/i);
   });
 
-  it('offers publish-html only when toolkit is enabled and never invokes it', () => {
+  it('offers publish-html only when publish_available is true and never invokes it', () => {
+    expect(fm.body).toContain('publish_available');
     expect(fm.body).toContain('toolkit@contract-hero');
     expect(fm.body).toContain('publish-html');
     expect(fm.body).toMatch(/never invoke `publish-html`/i);

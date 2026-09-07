@@ -2,12 +2,19 @@ import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';
 import { substitutePromptOnly } from '../personalization.js';
 import { runSetupGate } from './setupGate.js';
+import { lessonPhase, resolveVerification } from '../progress.js';
 import {
+  artifactNav,
   chapterArtifactPath,
-  conventionsPath,
+  CONVENTIONS_PATH,
   summaryArtifactPath,
+  type ArtifactNav,
 } from '../artifacts.js';
+import { isClaudePluginEnabled } from '../outputStyle.js';
 import type { VerificationSpec } from '../schemas/chapters.js';
+
+/** The plugin whose `publish-html` skill the conductor offers after the summary. */
+export const PUBLISH_PLUGIN_KEY = 'toolkit@contract-hero';
 
 export interface NextChapterResult {
   ok: boolean;
@@ -29,19 +36,26 @@ export interface NextChapterResult {
     key_idea: string;
     expected_files: string[];
     tests: string[];
-    verification: VerificationSpec;
+    /** Resolved: `cwd` is always present, relative to `workspace_path`. */
+    verification: Required<VerificationSpec>;
   };
   /** Absolute path to the lesson's docs snapshot, when the lesson declares one. */
   docs_dir?: string;
   workspace_path?: string;
-  /** Where the conductor must write this chapter's artifact. */
-  artifact_path?: string;
   /** Absolute path to ACC's artifact conventions file. */
   artifact_conventions_path?: string;
-  /** Where the conductor must write the summary artifact after the e2e gate. */
+  /** Chapter envelope only: where the conductor must write this chapter's artifact. */
+  artifact_path?: string;
+  /** Chapter envelope only: relative filenames for the artifact's footer links. */
+  artifact_nav?: ArtifactNav;
+  /** Done envelope only: where the conductor must write the summary artifact. */
   summary_artifact_path?: string;
-  /** Present only when `done && !completed`: the e2e gate verifyChapter will run next. */
-  final_verification?: VerificationSpec;
+  /** Done envelope only: chapter id → recorded artifact path (plus `summary` once recorded). */
+  artifacts?: Record<string, string>;
+  /** Done envelope only: true when the publish-html plugin is enabled. */
+  publish_available?: boolean;
+  /** Done envelope only, while `completed` is false: the e2e gate verifyChapter runs next. */
+  final_verification?: Required<VerificationSpec>;
 }
 
 export async function runNextChapter({
@@ -56,33 +70,32 @@ export async function runNextChapter({
   const { state, loaded } = gate;
   const { chapters, lesson, info } = loaded;
 
-  const total = chapters.chapters.length;
-  const cursor = state.chapter_cursor;
-
   const common: Partial<NextChapterResult> = {
-    total,
-    index: cursor,
-    artifact_conventions_path: conventionsPath(),
-    summary_artifact_path: summaryArtifactPath(projectRoot, state.workspace_path),
+    total: chapters.chapters.length,
+    index: state.chapter_cursor,
+    artifact_conventions_path: CONVENTIONS_PATH,
   };
   if (state.workspace_path !== undefined) common.workspace_path = state.workspace_path;
   if (lesson.docs !== undefined) common.docs_dir = path.join(info.lesson_dir, lesson.docs);
 
-  if (cursor >= total) {
-    if (state.completed_at !== undefined) {
-      return { ok: true, done: true, completed: true, ...common };
-    }
-    return {
+  const progress = lessonPhase(state, chapters);
+  if (progress.phase !== 'chapter') {
+    const result: NextChapterResult = {
       ok: true,
       done: true,
-      completed: false,
-      final_verification: chapters.final_verification,
+      completed: progress.phase === 'done',
       ...common,
+      summary_artifact_path: summaryArtifactPath(projectRoot, state.workspace_path),
+      artifacts: state.artifacts,
+      publish_available: isClaudePluginEnabled(PUBLISH_PLUGIN_KEY),
     };
+    if (progress.phase === 'e2e') {
+      result.final_verification = resolveVerification(lesson, chapters.final_verification);
+    }
+    return result;
   }
 
-  const chapter = chapters.chapters[cursor];
-
+  const { index, chapter } = progress;
   const briefPath = path.join(info.lesson_dir, chapter.brief_md);
   let brief: string;
   try {
@@ -107,8 +120,9 @@ export async function runNextChapter({
       key_idea: chapter.key_idea,
       expected_files: chapter.expected_files,
       tests: chapter.tests,
-      verification: chapter.verification,
+      verification: resolveVerification(lesson, chapter.verification),
     },
-    artifact_path: chapterArtifactPath(projectRoot, state.workspace_path, cursor, chapter.id),
+    artifact_path: chapterArtifactPath(projectRoot, state.workspace_path, index, chapter.id),
+    artifact_nav: artifactNav(chapters.chapters, index),
   };
 }

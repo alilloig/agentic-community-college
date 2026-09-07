@@ -12,6 +12,9 @@
 
 export type VerificationMode = 'compile' | 'test-suite';
 
+import { isFilenameSafeId, isSafeRelPath } from '../pathSafety.js';
+import { validateRelPathList, type ValidationResult } from './common.js';
+
 export interface VerificationSpec {
   mode: VerificationMode;
   command: string;
@@ -42,15 +45,6 @@ export interface ChaptersManifest {
   final_verification: VerificationSpec;
 }
 
-type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
-
-function isRelPath(p: string): boolean {
-  if (p.length === 0) return false;
-  if (p.startsWith('/') || p.startsWith('\\')) return false;
-  const segments = p.replace(/\\/g, '/').split('/');
-  return !segments.includes('..');
-}
-
 export function validateVerification(
   raw: unknown,
   where: string,
@@ -76,7 +70,7 @@ export function validateVerification(
     if (typeof v['cwd'] !== 'string' || (v['cwd'] as string).length === 0) {
       return { ok: false, error: `${where}.cwd must be a non-empty string if present` };
     }
-    if (!isRelPath(v['cwd'] as string)) {
+    if (!isSafeRelPath(v['cwd'] as string)) {
       return {
         ok: false,
         error: `${where}.cwd '${v['cwd']}' must be a relative path with no '..' segments and no leading '/'`,
@@ -85,29 +79,6 @@ export function validateVerification(
     spec.cwd = v['cwd'] as string;
   }
   return { ok: true, value: spec };
-}
-
-function validateRelPathList(
-  raw: unknown,
-  where: string,
-): ValidationResult<string[]> {
-  if (!Array.isArray(raw)) {
-    return { ok: false, error: `${where} must be an array` };
-  }
-  const out: string[] = [];
-  for (const entry of raw as unknown[]) {
-    if (typeof entry !== 'string' || entry.length === 0) {
-      return { ok: false, error: `${where} entries must be non-empty strings` };
-    }
-    if (!isRelPath(entry)) {
-      return {
-        ok: false,
-        error: `${where} entry '${entry}' must be a relative path with no '..' segments and no leading '/'`,
-      };
-    }
-    out.push(entry);
-  }
-  return { ok: true, value: out };
 }
 
 export function validateChapters(v: unknown): ValidationResult<ChaptersManifest> {
@@ -140,7 +111,7 @@ export function validateChapters(v: unknown): ValidationResult<ChaptersManifest>
     if (typeof c['id'] !== 'string' || (c['id'] as string).length === 0) {
       return { ok: false, error: `${where}.id must be a non-empty string` };
     }
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(c['id'] as string)) {
+    if (!isFilenameSafeId(c['id'] as string)) {
       return {
         ok: false,
         error: `${where}.id '${c['id']}' must be filename-safe ([A-Za-z0-9._-], no leading dot)`,
@@ -157,7 +128,7 @@ export function validateChapters(v: unknown): ValidationResult<ChaptersManifest>
     if (typeof c['brief_md'] !== 'string' || (c['brief_md'] as string).length === 0) {
       return { ok: false, error: `${where}.brief_md must be a non-empty string` };
     }
-    if (!isRelPath(c['brief_md'] as string)) {
+    if (!isSafeRelPath(c['brief_md'] as string)) {
       return {
         ok: false,
         error: `${where}.brief_md '${c['brief_md']}' must be a lesson-relative path`,
@@ -167,10 +138,13 @@ export function validateChapters(v: unknown): ValidationResult<ChaptersManifest>
       return { ok: false, error: `${where}.key_idea must be a non-empty string` };
     }
 
+    if (c['expected_files'] === undefined) {
+      return { ok: false, error: `${where}.expected_files is required` };
+    }
     const expected = validateRelPathList(c['expected_files'], `${where}.expected_files`);
     if (!expected.ok) return expected;
 
-    const tests = validateRelPathList(c['tests'] ?? [], `${where}.tests`);
+    const tests = validateRelPathList(c['tests'], `${where}.tests`);
     if (!tests.ok) return tests;
 
     if (c['verification'] === undefined) {

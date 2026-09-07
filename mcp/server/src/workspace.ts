@@ -27,6 +27,7 @@ import type { LessonData } from './schemas/lesson.js';
 import { validateWorkspaceMeta, WORKSPACE_META_SCHEMA_VERSION } from './schemas/workspace.js';
 import type { WorkspaceMeta } from './schemas/workspace.js';
 import { atomicWriteFile } from './atomicWrite.js';
+import { containedPath, PathTraversalError } from './pathSafety.js';
 import { envFileContents } from './pathResolver.js';
 
 export type { WorkspaceMeta };
@@ -166,27 +167,22 @@ export async function prepareWorkspace(
   // 4a. Seed host tree.
   await copyDirectoryTree(hostDir, workspacePath);
 
-  // 4a'. Strip the solution. Paths are schema-validated (workspace-relative,
-  //      no `..`, no leading slash) and re-checked here against the workspace
-  //      root so a manifest can never reach outside it.
-  const strippedFiles: string[] = [];
-  for (const rel of lessonData.workspace.solution_files) {
-    const targetAbs = path.resolve(workspacePath, rel);
-    if (!targetAbs.startsWith(`${path.resolve(workspacePath)}${path.sep}`)) {
-      throw new WorkspacePrepareError(
-        'invalid-config',
-        `solution_files entry '${rel}' resolves outside the workspace`,
-      );
-    }
-    await fsPromises.rm(targetAbs, { recursive: true, force: true });
-    strippedFiles.push(rel);
-  }
+  // 4a'. Strip the solution. Paths are schema-validated; `containedPath`
+  //      re-checks each one against the workspace root before anything is
+  //      deleted.
+  const strippedFiles = lessonData.workspace.solution_files;
+  const stripTargets = strippedFiles.map((rel) =>
+    resolveInsideWorkspace(workspacePath, rel, 'solution_files'),
+  );
+  await Promise.all(
+    stripTargets.map((target) => fsPromises.rm(target, { recursive: true, force: true })),
+  );
 
   // 4b. Copy starter files into their declared workspace paths.
   const starterFiles: string[] = [];
   for (const file of lessonData.workspace.files) {
     const starterAbs = path.join(lessonDir, file.starter);
-    const targetAbs = path.join(workspacePath, file.path);
+    const targetAbs = resolveInsideWorkspace(workspacePath, file.path, 'files[].path');
     if (!(await pathExists(starterAbs))) {
       throw new WorkspacePrepareError(
         'starter-missing',
@@ -236,6 +232,33 @@ export async function prepareWorkspace(
   if (archivedTo !== undefined) result.archivedTo = archivedTo;
   if (installLogs !== undefined) result.installLogs = installLogs;
   return result;
+}
+
+/**
+ * Resolve a manifest-declared, workspace-relative path and refuse anything
+ * that escapes the workspace or names the workspace root itself.
+ */
+function resolveInsideWorkspace(workspacePath: string, rel: string, field: string): string {
+  let abs: string;
+  try {
+    abs = containedPath(workspacePath, rel);
+  } catch (err) {
+    if (err instanceof PathTraversalError) {
+      throw new WorkspacePrepareError(
+        'invalid-config',
+        `workspace.${field} entry '${rel}' resolves outside the workspace`,
+        err,
+      );
+    }
+    throw err;
+  }
+  if (abs === path.resolve(workspacePath)) {
+    throw new WorkspacePrepareError(
+      'invalid-config',
+      `workspace.${field} entry '${rel}' resolves to the workspace root`,
+    );
+  }
+  return abs;
 }
 
 /** Removes the workspace directory entirely and any archived siblings. */

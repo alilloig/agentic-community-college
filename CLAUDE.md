@@ -116,24 +116,24 @@ Short markdown with three parts: **What we implement** (learner-facing, 3–6 li
 2. `start` → catalog + `outputStyle` status. If the active style is not `Concise`, the skill asks the learner and, on yes, calls `setOutputStyle`.
 3. Learner picks a lesson → `selectLesson` (mints v5 state, seeds the workspace) → `runPreflightProbe` for each prerequisite → `setPersonalization` (defaults when the lesson has none).
 4. Hand-off to the `course-conductor` agent. Per chapter:
-   1. `nextChapter` → brief, key idea, expected files, tests, verification, `docs_dir`, `workspace_path`, `artifact_path`.
+   1. `nextChapter` → brief, key idea, expected files, tests, resolved verification (`cwd` always set), `docs_dir`, `workspace_path`, `artifact_path`, `artifact_nav` (prev/next filenames for the footer links).
    2. **Tell** — a short "Chapter N of M — title: here is what we implement and which tests define done".
    3. **Implement** — read `docs_dir` and the chapter's tests, edit only `expected_files`, run the chapter's verification command with Bash until green (max 5 attempts, then ask the learner).
    4. **Explain** — write the chapter artifact at `artifact_path` following `skills/chapter-artifact/references/conventions.md` (the MCP returns the absolute path as `artifact_conventions_path`).
    5. `verifyChapter` — the official gate. On pass it advances `chapter_cursor` and records the artifact path in state. On fail it returns the output; the conductor never auto-retries the gate, it asks the learner.
    6. **Pause** — `AskUserQuestion`: continue / I have questions / pause here. Never more than one chapter per learner turn.
-5. When `nextChapter` returns `done: true` with `final_verification`, the conductor calls `verifyChapter` once more (runs the e2e), then writes `summary_artifact_path` (chapter cards linking every artifact, the most important learnings, the final architecture), calls `verifyChapter` a last time so the summary gets recorded, and offers `publish-html` if `toolkit@contract-hero` is enabled.
+5. When `nextChapter` returns `done: true` with `final_verification`, the conductor calls `verifyChapter` once more (runs the e2e), then writes `summary_artifact_path` (chapter cards built from the `artifacts` map, the most important learnings, the final architecture), calls `verifyChapter` a last time so the summary gets recorded, and offers `publish-html` when the envelope says `publish_available: true` (`toolkit@contract-hero` enabled).
 
 ## MCP tools (v0.3)
 
 | Tool | Purpose |
 |---|---|
-| `start` | Catalog across enabled courses + `outputStyle: { active, recommended: "Concise", ok }`. Never runs probes. |
+| `start` | Catalog across enabled courses (`chapter_count` per lesson) + `outputStyle: { active, recommended: "Concise", ok }`. Never runs probes. |
 | `runPreflightProbe` | Runs one declared probe by id, optional remediation. Unchanged. |
-| `selectLesson` | Mints v5 state, seeds the workspace (host − solution_files + starters), returns description, prerequisites, personalization prompts, first-run setup. |
+| `selectLesson` | Mints v5 state, seeds the workspace (host − solution_files + starters), returns description, prerequisites, personalization prompts, `workspaceStrippedFiles`, first-run setup. |
 | `setPersonalization` | Validates + persists personalization values. `{}` accepts defaults. |
 | `setOutputStyle` | Writes `outputStyle` into `~/.claude/settings.json` (only `Concise` is accepted). Returns the previous value. |
-| `nextChapter` | Current chapter envelope (see runtime flow). `done: true` + `final_verification` when the cursor is past the last chapter and the e2e has not run; `done: true, completed: true` after the e2e passed. |
+| `nextChapter` | Chapter envelope (see runtime flow) while chapters remain. Done envelope (`done: true`, `summary_artifact_path`, `artifacts` map, `publish_available`) once the cursor is past the last chapter: with `final_verification` while the e2e has not run, with `completed: true` after it passed. |
 | `verifyChapter` | Runs the current chapter's verification, or `final_verification` when the cursor is past the last chapter. On pass: advances the cursor (or marks `completed_at`), records the artifact path if the file exists. After completion a re-entrant call re-runs nothing and records `summary.html` once it exists. |
 | `configureWorkspace` | Read/write `~/.acc/config.json`. Unchanged. |
 
@@ -179,9 +179,10 @@ State lives at `<projectRoot>/.acc/state.json`. Older versions surface as `schem
 | `mcp/server/src/tools/nextChapter.ts` | `nextChapter`. |
 | `mcp/server/src/tools/verifyChapter.ts` | `verifyChapter`. |
 | `mcp/server/src/tools/configureWorkspace.ts` | `configureWorkspace`. |
-| `mcp/server/src/tools/setupGate.ts` | Shared entry sequence for chapter-loop tools: state load → selected lesson → registry resolve. |
-| `mcp/server/src/artifacts.ts` | Artifact path conventions (`<workspace>/artifacts/NN-<id>.html`, `summary.html`) and the conventions-file locator. |
-| `mcp/server/src/outputStyle.ts` | `readActiveOutputStyle()` + `writeOutputStyle()` against `~/.claude/settings.json`. |
+| `mcp/server/src/tools/setupGate.ts` | Shared entry sequence for chapter-loop tools, in two steps: `loadSelectedState` (state load + selected lesson) and `resolveSelectedLesson` (registry resolve); `runSetupGate` runs both. |
+| `mcp/server/src/progress.ts` | `lessonPhase()` (chapter / e2e / done, the one reading of state vs chapters) and `resolveVerification()` (applies `workspace.verification_cwd`), shared by `nextChapter` and `verifyChapter`. |
+| `mcp/server/src/artifacts.ts` | Artifact path conventions (`<workspace>/artifacts/NN-<id>.html`, `summary.html`), `artifactNav()` for footer links, and `CONVENTIONS_PATH`. |
+| `mcp/server/src/outputStyle.ts` | The one reader of `~/.claude/settings.json`: `readClaudeSettings()`, `isClaudePluginEnabled()`, `getOutputStyleStatus()`, `writeOutputStyle()`. |
 | `mcp/server/src/settings.ts` | `loadAccConfig` / `saveAccConfig` / `mergeAccConfig` for `~/.acc/config.json`. |
 | `mcp/server/src/pathResolver.ts` | `resolveCoursePaths`, `substitutePathRefs`, `envVarsFor`, `envFileContents` — the only `${paths.<id>}` substitution channel. |
 | `mcp/server/src/schemas/contentPaths.ts` | Validator for `accContent.paths` + cross-reference check against probe `${paths.<id>}` references. |
@@ -194,9 +195,10 @@ State lives at `<projectRoot>/.acc/state.json`. Older versions surface as `schem
 | `mcp/server/src/preflight.ts` | Shared probe types only. ACC ships **zero** hardcoded probes. |
 | `mcp/server/src/dynamicProbes.ts` | Declarative probe runner (`filesystem-exists`, `http-get`, `shell-exit-zero`, `claude-plugin-enabled`). |
 | `mcp/server/src/schemas/courseProbes.ts` | Validator for `accContent.probes`. |
-| `mcp/server/src/pathSafety.ts` | `containedPath` guard for host-side file writes. |
+| `mcp/server/src/pathSafety.ts` | `containedPath` guard for host-side file writes, plus the shared `isSafeRelPath` / `isFilenameSafeId` predicates every manifest validator uses. |
 | `mcp/server/src/schemas/lesson.ts` | `validateLesson()` for `<lesson>/lesson.json`. |
 | `mcp/server/src/schemas/chapters.ts` | `validateChapters()` for `<lesson>/chapters.json`. |
+| `mcp/server/src/schemas/common.ts` | `ValidationResult` + `validateRelPathList()` shared by the lesson and chapters validators. |
 | `mcp/server/src/schemas/state.ts` | v5 state validator. |
 | `mcp/server/src/schemas/workspace.ts` | Per-workspace `.course-state.json` metadata validator. |
 | `tests/` | Vitest suites: schemas, discovery, registry, output style, personalization, probes, verify, workspace, chapter-loop tools, skill/agent/template harnesses. |
@@ -215,7 +217,7 @@ State lives at `<projectRoot>/.acc/state.json`. Older versions surface as `schem
 10. **ACC ships zero domain probes.** Every probe is declared by a course plugin's `plugin.json`. A new probe kind requires a runtime change in ACC.
 11. **`runPreflightProbe` resolves probe IDs against the merged registry.** Collisions: first-found wins with a discovery warning. Unknown IDs surface as a descriptive error.
 12. **Artifacts are written by the conductor, recorded by `verifyChapter`.** The MCP never generates HTML. `verifyChapter` only checks that the conventional file exists and stores its path; a missing artifact is a warning, not a failure.
-13. **Path safety is non-negotiable.** Anything that resolves a lesson-relative path (briefs, docs dir, host directory, solution files, verification cwd, probe params) goes through the schema validators / `pathSafety.containedPath` / `dynamicProbes.expandUserPath`. Reject `..` segments and leading slashes.
+13. **Path safety is non-negotiable.** Every manifest path field is validated with `pathSafety.isSafeRelPath` (no `..`, no leading slash); every host-side write under the workspace resolves through `pathSafety.containedPath`; probe params go through `dynamicProbes.expandUserPath`. One predicate, one guard, no local copies.
 14. **Configurable paths are a separate code path from personalization.** `${paths.<id>}` substitution lives in `pathResolver.substitutePathRefs` and runs ONLY against probe params + remediation, BEFORE the probe runner sees them.
 15. **The output-style check is advisory.** No MCP tool refuses to run because of the active output style. `start` reports it; `setOutputStyle` changes it only when the learner says yes.
 
