@@ -1,24 +1,23 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { validateLesson, type LessonData } from './schemas/lesson.js';
-import { validateSections, type SectionsManifest } from './schemas/sections.js';
+import { validateChapters, type ChaptersManifest } from './schemas/chapters.js';
 import type { DiscoveredCourse } from './pluginsRoot.js';
 import type { RegistryWarning } from './warnings.js';
 
 export type { RegistryWarning };
 
 /**
- * Public summary of a lesson, surfaced to the conductor and `start` tool.
- * The full `LessonData` and `SectionsManifest` are loaded lazily by tools
- * that need them (selectLesson, nextSection, etc.).
+ * Public summary of a lesson, surfaced to the course-engine and `start` tool.
+ * The full `LessonData` and `ChaptersManifest` are loaded lazily by tools
+ * that need them (selectLesson, nextChapter, verifyChapter).
  */
 export interface LessonInfo {
   slug: string;
   title: string;
   summary: string;
   personalization_options: string[];
-  build_command: string;
-  /** Plugin key of the owning course (e.g. `acc-deepbook-course@local`). */
+  /** Plugin key of the owning course (e.g. `acc-claude-sdk@contract-hero`). */
   course_name: string;
   /** Course-prefixed slug used as the public identifier: `<course>/<slug>`. */
   namespaced_slug: string;
@@ -26,9 +25,9 @@ export interface LessonInfo {
   lessons_root: string;
   /** Absolute path to this lesson's directory. */
   lesson_dir: string;
-  /** Total number of sections in this lesson (loaded eagerly so the conductor
-   * can render "section N of M" without a second tool round-trip). */
-  section_count: number;
+  /** Total number of chapters (loaded eagerly so the catalog can render
+   * "N chapters" without a second tool round-trip). */
+  chapter_count: number;
 }
 
 export interface CoursesRegistryResult {
@@ -40,14 +39,14 @@ interface ScanSingleRootResult {
   lessons: Array<{
     info: LessonInfo;
     lesson: LessonData;
-    sections: SectionsManifest;
+    chapters: ChaptersManifest;
   }>;
   warnings: RegistryWarning[];
 }
 
 /**
  * Scan a single lessons-root directory. Each immediate subdirectory is
- * interpreted as a lesson and validated against `lesson.json` + `sections.json`
+ * interpreted as a lesson and validated against `lesson.json` + `chapters.json`
  * together.
  *
  * Internal helper — most callers go through `scanCourses` instead.
@@ -127,59 +126,61 @@ export function scanLessonsRoot(
       continue;
     }
 
-    // sections.json is load-bearing: a lesson without it is not runnable.
-    const sectionsJsonFile = path.join(lessonDir, 'sections.json');
-    let sectionsRaw: string;
+    // chapters.json is load-bearing: a lesson without it is not runnable.
+    const chaptersJsonFile = path.join(lessonDir, 'chapters.json');
+    let chaptersRaw: string;
     try {
-      sectionsRaw = fs.readFileSync(sectionsJsonFile, 'utf8');
+      chaptersRaw = fs.readFileSync(chaptersJsonFile, 'utf8');
     } catch {
+      const legacyHint = fs.existsSync(path.join(lessonDir, 'sections.json'))
+        ? ' This lesson uses the v0.2 sections.json model; migrate it to chapters.json (ACC v0.3).'
+        : '';
       result.warnings.push({
-        kind: 'missing-phases-json',
-        message: `No sections.json found in ${lessonDir}`,
+        kind: 'missing-chapters-json',
+        message: `No chapters.json found in ${lessonDir}.${legacyHint}`,
         path: lessonDir,
       });
       continue;
     }
 
-    let sectionsParsed: unknown;
+    let chaptersParsed: unknown;
     try {
-      sectionsParsed = JSON.parse(sectionsRaw);
+      chaptersParsed = JSON.parse(chaptersRaw);
     } catch (err) {
       result.warnings.push({
-        kind: 'malformed-phases-json',
-        message: `Failed to parse ${sectionsJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
-        path: sectionsJsonFile,
+        kind: 'malformed-chapters-json',
+        message: `Failed to parse ${chaptersJsonFile}: ${err instanceof Error ? err.message : String(err)}`,
+        path: chaptersJsonFile,
       });
       continue;
     }
 
-    const sectionsValidation = validateSections(sectionsParsed);
-    if (!sectionsValidation.ok) {
+    const chaptersValidation = validateChapters(chaptersParsed);
+    if (!chaptersValidation.ok) {
       result.warnings.push({
-        kind: 'invalid-phases-json',
-        message: `Schema validation failed for ${sectionsJsonFile}: ${sectionsValidation.error}`,
-        path: sectionsJsonFile,
+        kind: 'invalid-chapters-json',
+        message: `Schema validation failed for ${chaptersJsonFile}: ${chaptersValidation.error}`,
+        path: chaptersJsonFile,
       });
       continue;
     }
 
     const lesson = lessonValidation.value;
-    const sections = sectionsValidation.value;
+    const chapters = chaptersValidation.value;
     result.lessons.push({
       info: {
         slug: lesson.slug,
         title: lesson.title,
         summary: lesson.summary,
         personalization_options: lesson.personalization_options,
-        build_command: lesson.build_command,
         course_name: courseName,
         namespaced_slug: `${courseName}/${lesson.slug}`,
         lessons_root: scanRoot,
         lesson_dir: lessonDir,
-        section_count: sections.sections.length,
+        chapter_count: chapters.chapters.length,
       },
       lesson,
-      sections,
+      chapters,
     });
   }
 
@@ -210,13 +211,13 @@ export async function scanCourses(
 }
 
 /**
- * Eager-load the lesson + sections for a single namespaced slug. Used by
+ * Eager-load the lesson + chapters for a single namespaced slug. Used by
  * tools that need the full manifests, not just the public summary.
  */
 export function loadLessonBySlug(
   courses: readonly DiscoveredCourse[],
   namespacedSlug: string,
-): { ok: true; lesson: LessonData; sections: SectionsManifest; info: LessonInfo }
+): { ok: true; lesson: LessonData; chapters: ChaptersManifest; info: LessonInfo }
 | { ok: false; error: string } {
   const slashIdx = namespacedSlug.indexOf('/');
   if (slashIdx <= 0) {
@@ -233,5 +234,5 @@ export function loadLessonBySlug(
   if (!hit) {
     return { ok: false, error: `Lesson '${lessonSlug}' not found in course '${courseName}'.` };
   }
-  return { ok: true, lesson: hit.lesson, sections: hit.sections, info: hit.info };
+  return { ok: true, lesson: hit.lesson, chapters: hit.chapters, info: hit.info };
 }

@@ -3,23 +3,23 @@ import { validateLesson } from '../mcp/server/src/schemas/lesson.js';
 
 function baseLesson() {
   return {
-    slug: '01-market-stats',
-    title: 'Market Stats',
-    summary: 'Build a DeepBook market-stats viewer.',
+    slug: '01-basic-agent',
+    title: 'Your first agent',
+    summary: 'Build the smallest useful agent.',
     personalization_options: [],
-    build_command: 'pnpm build',
+    workspace: { host: 'reference-app' },
   };
 }
 
-describe('validateLesson', () => {
+describe('validateLesson (v0.3)', () => {
   it('accepts the minimum-required shape', () => {
     const r = validateLesson(baseLesson());
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value.slug).toBe('01-market-stats');
+      expect(r.value.slug).toBe('01-basic-agent');
       expect(r.value.personalization_options).toEqual([]);
-      expect(r.value.test_command).toBeUndefined();
-      expect(r.value.artifact).toBeUndefined();
+      expect(r.value.docs).toBeUndefined();
+      expect(r.value.workspace.host).toBe('reference-app');
     }
   });
 
@@ -31,11 +31,32 @@ describe('validateLesson', () => {
   });
 
   it('rejects when required fields are missing', () => {
-    for (const field of ['slug', 'title', 'summary', 'build_command', 'personalization_options']) {
+    for (const field of ['slug', 'title', 'summary', 'personalization_options', 'workspace']) {
       const obj = baseLesson() as Record<string, unknown>;
       delete obj[field];
       const r = validateLesson(obj);
-      expect(r.ok).toBe(false);
+      expect(r.ok, field).toBe(false);
+    }
+  });
+
+  it('ignores retired v0.2 fields instead of failing on them', () => {
+    const r = validateLesson({
+      ...baseLesson(),
+      build_command: 'pnpm build',
+      test_command: 'pnpm vitest run',
+      artifact: { template: 'artifact/template.html' },
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect((r.value as Record<string, unknown>)['build_command']).toBeUndefined();
+      expect((r.value as Record<string, unknown>)['artifact']).toBeUndefined();
+    }
+  });
+
+  it('rejects slugs that are not filename-safe', () => {
+    for (const slug of ['../x', 'a/b', '.hidden', 'has space']) {
+      const r = validateLesson({ ...baseLesson(), slug });
+      expect(r.ok, slug).toBe(false);
     }
   });
 
@@ -90,67 +111,74 @@ describe('validateLesson', () => {
     if (!r.ok) expect(r.error).toMatch(/is not in values/);
   });
 
-  it('accepts optional test_command', () => {
-    const r = validateLesson({ ...baseLesson(), test_command: 'pnpm vitest run' });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.test_command).toBe('pnpm vitest run');
+  it('accepts a docs directory and rejects one that escapes the lesson', () => {
+    const ok = validateLesson({ ...baseLesson(), docs: 'docs/' });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.value.docs).toBe('docs/');
+    expect(validateLesson({ ...baseLesson(), docs: '../docs' }).ok).toBe(false);
+    expect(validateLesson({ ...baseLesson(), docs: '/etc' }).ok).toBe(false);
+    expect(validateLesson({ ...baseLesson(), docs: '' }).ok).toBe(false);
   });
 
-  it('accepts an artifact block with a template path', () => {
-    const r = validateLesson({
-      ...baseLesson(),
-      artifact: { template: 'artifact/template.html' },
-    });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.value.artifact?.template).toBe('artifact/template.html');
-      expect(r.value.artifact?.state_filename).toBeUndefined();
-    }
-  });
-
-  it('rejects artifact.template that escapes the lesson dir', () => {
-    const r = validateLesson({
-      ...baseLesson(),
-      artifact: { template: '../etc/passwd' },
-    });
-    expect(r.ok).toBe(false);
-  });
-
-  it('rejects artifact.state_filename containing slashes', () => {
-    const r = validateLesson({
-      ...baseLesson(),
-      artifact: { template: 'artifact/template.html', state_filename: 'sub/path.json' },
-    });
-    expect(r.ok).toBe(false);
-  });
-
-  it('accepts a workspace block with a host + one file', () => {
+  it('accepts a workspace block with host, solution_files and starters', () => {
     const r = validateLesson({
       ...baseLesson(),
       workspace: {
-        host: 'hosts/orderbook',
+        host: 'reference-app',
+        host_install_command: 'pnpm install',
+        verification_cwd: '.',
+        solution_files: ['src/agent.ts', 'src/tools.ts'],
         files: [{ path: 'src/App.tsx', starter: 'starters/App.tsx' }],
       },
     });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value.workspace?.host).toBe('hosts/orderbook');
+      expect(r.value.workspace?.host).toBe('reference-app');
+      expect(r.value.workspace?.solution_files).toEqual(['src/agent.ts', 'src/tools.ts']);
       expect(r.value.workspace?.files).toHaveLength(1);
+      expect(r.value.workspace?.verification_cwd).toBe('.');
     }
   });
 
-  it('accepts a prerequisites array of known probe IDs', () => {
-    const r = validateLesson({
-      ...baseLesson(),
-      prerequisites: ['docker-running', 'sandbox-manifest-reachable'],
-    });
+  it('requires a workspace block (v0.3 lessons always run inside a seeded workspace)', () => {
+    const obj = baseLesson() as Record<string, unknown>;
+    delete obj['workspace'];
+    const r = validateLesson(obj);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toMatch(/workspace is required/);
+  });
+
+  it('defaults solution_files and files to empty arrays', () => {
+    const r = validateLesson({ ...baseLesson(), workspace: { host: 'reference-app' } });
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.value.prerequisites).toEqual([
-        'docker-running',
-        'sandbox-manifest-reachable',
-      ]);
+      expect(r.value.workspace?.solution_files).toEqual([]);
+      expect(r.value.workspace?.files).toEqual([]);
     }
+  });
+
+  it('rejects solution_files that escape the workspace', () => {
+    for (const bad of ['../secrets', '/etc/passwd', 'src/../../x']) {
+      const r = validateLesson({
+        ...baseLesson(),
+        workspace: { host: 'reference-app', solution_files: [bad] },
+      });
+      expect(r.ok, bad).toBe(false);
+    }
+  });
+
+  it('rejects workspace.host that escapes the lesson', () => {
+    const r = validateLesson({ ...baseLesson(), workspace: { host: '../other' } });
+    expect(r.ok).toBe(false);
+  });
+
+  it('accepts a prerequisites array of arbitrary probe IDs', () => {
+    const r = validateLesson({
+      ...baseLesson(),
+      prerequisites: ['node-22-installed', 'pnpm-installed'],
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.prerequisites).toEqual(['node-22-installed', 'pnpm-installed']);
   });
 
   it('accepts an empty prerequisites array', () => {
@@ -159,41 +187,8 @@ describe('validateLesson', () => {
     if (r.ok) expect(r.value.prerequisites).toEqual([]);
   });
 
-  it('accepts arbitrary string probe IDs (runtime resolves against course manifests)', () => {
-    // Schema no longer hardcodes a probe-ID allowlist. ACC ships zero
-    // domain probes; each course plugin declares its own under
-    // accContent.probes. Runtime (runPreflightProbe) surfaces an error
-    // when a prerequisite id doesn't match any declared probe.
-    const r = validateLesson({
-      ...baseLesson(),
-      prerequisites: ['my-custom-probe', 'another-one'],
-    });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.value.prerequisites).toEqual(['my-custom-probe', 'another-one']);
-    }
-  });
-
-  it('rejects prerequisites when not an array', () => {
-    const r = validateLesson({
-      ...baseLesson(),
-      prerequisites: 'docker-running',
-    } as unknown);
-    expect(r.ok).toBe(false);
-  });
-
-  it('rejects empty-string entries in prerequisites', () => {
-    const r = validateLesson({ ...baseLesson(), prerequisites: ['ok-id', ''] });
-    expect(r.ok).toBe(false);
-  });
-});
-
-describe('validateLesson — prerequisites accept any non-empty string', () => {
-  it('accepts a long arbitrary list of probe IDs', () => {
-    const ids = ['a', 'b-c', 'plugin-name@scope', 'with.dot', 'with_under'];
-    for (const probeId of ids) {
-      const r = validateLesson({ ...baseLesson(), prerequisites: [probeId] });
-      expect(r.ok, r.ok ? '' : `${probeId}: ${r.error}`).toBe(true);
-    }
+  it('rejects prerequisites when not an array or with empty entries', () => {
+    expect(validateLesson({ ...baseLesson(), prerequisites: 'x' } as unknown).ok).toBe(false);
+    expect(validateLesson({ ...baseLesson(), prerequisites: ['ok', ''] }).ok).toBe(false);
   });
 });

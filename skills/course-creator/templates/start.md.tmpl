@@ -4,6 +4,15 @@ Start a lesson in **{{ name }}**.
 
 {{ welcome_paragraph }}
 
-To begin, invoke ACC's `course-engine` skill (from the `agentic-community-college` plugin) with a course filter pinned to `{{ name }}` — that will list only this course's lessons, walk the learner through selection, run the picked lesson's prerequisite probes, collect output mode (learning vs explanatory) and personalization, and hand off to the `course-conductor` agent for the section loop.
+Invoke ACC's `course-engine` skill (from the `agentic-community-college` plugin) with a course filter pinned to `{{ name }}`. The skill:
 
-If `agentic-community-college` isn't enabled, the user needs to install it first (e.g. `claude plugins install agentic-community-college@<marketplace>`); this start command is a thin wrapper that depends on the framework.
+1. Calls `start` and lists only this course's lessons.
+2. Checks the active Claude Code output style. ACC recommends `Concise` and offers to set it.
+3. Walks the learner through lesson selection. `selectLesson` seeds the workspace with the scaffold and the tests, never the solution.
+4. Runs the picked lesson's prerequisite probes with `runPreflightProbe`.
+5. Collects personalization with `setPersonalization`.
+6. Hands off to the `course-conductor` agent for the chapter loop. Per chapter: tell, implement until the tests pass, explain with an HTML artifact, verify, pause.
+
+There are no output modes. The agent writes the code. The learner reads, asks, and confirms.
+
+If `agentic-community-college` is not enabled, install it first (`claude plugins install agentic-community-college@<marketplace>`). This start command is a thin wrapper over the framework.

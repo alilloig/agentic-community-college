@@ -9,16 +9,6 @@
   "commands": ["./commands/start.md"],
   "accContent": {
     "lessons": "./lessons/",
-    "probes": [
-      {
-        "id": "toolkit-installed",
-        "kind": "claude-plugin-enabled",
-        "message_pass": "toolkit@contract-hero is enabled (publish-html, html-artifact, for-dummies, move-call-chains available).",
-        "message_fail": "toolkit@contract-hero is not enabled. The conductor's post-lesson publish-html offer and in-section scratch-explainer suggestions need it. Install it from the contract-hero marketplace (Claude Code → Plugins → contract-hero → toolkit), then re-run the lesson.",
-        "params": {
-          "plugin_key": "toolkit@contract-hero"
-        }
-      }
-    ]
+    "probes": [{{ probes_json }}]
   }
 }

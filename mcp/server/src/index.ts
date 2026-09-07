@@ -4,11 +4,10 @@ import { z } from 'zod';
 import { runStart } from './tools/start.js';
 import { runPreflightProbe } from './tools/runPreflightProbe.js';
 import { runSelectLesson } from './tools/selectLesson.js';
-import { runSetOutputMode } from './tools/setOutputMode.js';
 import { runSetPersonalization } from './tools/setPersonalization.js';
-import { runNextSection } from './tools/nextSection.js';
-import { runVerifySection } from './tools/verifySection.js';
-import { runAdvanceArtifact } from './tools/advanceArtifact.js';
+import { runSetOutputStyle } from './tools/setOutputStyle.js';
+import { runNextChapter } from './tools/nextChapter.js';
+import { runVerifyChapter } from './tools/verifyChapter.js';
 import { runConfigureWorkspace } from './tools/configureWorkspace.js';
 import { fileURLToPath } from 'node:url';
 import * as fs from 'node:fs';
@@ -20,19 +19,20 @@ export { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 export { Client } from '@modelcontextprotocol/sdk/client/index.js';
 export { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
+export const ACC_VERSION = '0.3.0';
+
+function json(result: unknown) {
+  return { content: [{ type: 'text' as const, text: JSON.stringify(result) }] };
+}
+
 export function registerTools(server: McpServer): void {
   server.tool(
     'start',
-    'Start an ACC session — returns the lesson catalog (aggregated across enabled course plugins), output-style status, and preflight info. Cycle-1 always skips preflight.',
+    'Start an ACC session — returns the lesson catalog (aggregated across enabled course plugins), the advisory output-style status ({ active, recommended: "Concise", ok }), current state, and warnings. Never runs preflight probes.',
     {
       projectRoot: z.string().describe('Absolute path to the project root'),
     },
-    async ({ projectRoot }) => {
-      const result = await runStart({ projectRoot });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
+    async ({ projectRoot }) => json(await runStart({ projectRoot })),
   );
 
   server.tool(
@@ -45,44 +45,18 @@ export function registerTools(server: McpServer): void {
         .optional()
         .describe('If true and the probe fails with a shell action, execute the remediation'),
     },
-    async ({ probeId, remediate }) => {
-      const result = await runPreflightProbe({ probeId, remediate });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
+    async ({ probeId, remediate }) => json(await runPreflightProbe({ probeId, remediate })),
   );
 
   server.tool(
     'selectLesson',
-    'Pick a lesson by namespaced slug (`<course>/<lesson>`). Mints fresh v4 state, prepares the workspace if the lesson declares one, and returns description + personalization prompts + an output-mode picker.',
+    'Pick a lesson by namespaced slug (`<course>/<lesson>`). Seeds the workspace (host copy minus solution_files, plus starters) and returns description, prerequisites, personalization prompts, workspacePath/workspaceCreated/workspaceArchivedTo/workspaceStrippedFiles and first-run setup info. When state already holds this lesson unfinished and the workspace was reused, it RESUMES (resumed: true, chapter_cursor) instead of resetting; pass restart: true to start at chapter 1. A corrupt previous state.json is reported in warnings.',
     {
       projectRoot: z.string().describe('Absolute path to the project root'),
       slug: z.string().describe('Namespaced lesson slug (course-plugin/lesson)'),
+      restart: z.boolean().optional().describe('Discard existing progress on this lesson and start over'),
     },
-    async ({ projectRoot, slug }) => {
-      const result = await runSelectLesson({ projectRoot, slug });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
-  );
-
-  server.tool(
-    'setOutputMode',
-    "Persist the learner's chosen output mode (`learning` leaves load-bearing pieces as TODOs; `explanatory` implements + narrates). Call between selectLesson and setPersonalization.",
-    {
-      projectRoot: z.string().describe('Absolute path to the project root'),
-      style: z
-        .union([z.literal('learning'), z.literal('explanatory')])
-        .describe('Output mode for the lesson'),
-    },
-    async ({ projectRoot, style }) => {
-      const result = await runSetOutputMode({ projectRoot, style });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
+    async ({ projectRoot, slug, restart }) => json(await runSelectLesson({ projectRoot, slug, restart })),
   );
 
   server.tool(
@@ -92,62 +66,40 @@ export function registerTools(server: McpServer): void {
       projectRoot: z.string().describe('Absolute path to the project root'),
       values: z.record(z.unknown()).describe('Personalization key-value pairs'),
     },
-    async ({ projectRoot, values }) => {
-      const result = await runSetPersonalization({
-        projectRoot,
-        values: values as Record<string, unknown>,
-      });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
+    async ({ projectRoot, values }) =>
+      json(await runSetPersonalization({ projectRoot, values: values as Record<string, unknown> })),
   );
 
   server.tool(
-    'nextSection',
-    "Read the current section. Returns the substituted body, key_moment, expected_files, artifact_section_id, and optional per-section verification. Returns `done: true` when the cursor is past the lesson's last section.",
+    'setOutputStyle',
+    'Write the recommended Claude Code output style ("Concise") into ~/.claude/settings.json. Call only after the learner explicitly agreed. Returns the previous value and a note on how to apply it to the running session.',
     {
-      projectRoot: z.string().describe('Absolute path to the project root'),
+      style: z.literal('Concise').describe('The only accepted value'),
     },
-    async ({ projectRoot }) => {
-      const result = await runNextSection({ projectRoot });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
+    async ({ style }) => json(await runSetOutputStyle({ style })),
   );
 
   server.tool(
-    'verifySection',
-    "Run the current section's verification (or final_verification when at the last section). On pass, advances section_cursor. On fail, leaves cursor unchanged. Captures stdout/stderr in state.test_status.",
+    'nextChapter',
+    'Read the current chapter: brief (personalization rendered), key_idea, expected_files, tests, resolved verification (cwd always set), docs_dir, workspace_path, artifact_path, artifact_nav (prev/next filenames) and artifact_conventions_path. Once every chapter passed it returns the done envelope: done: true, summary_artifact_path, artifacts (chapter id -> recorded path), publish_available, plus final_verification while the e2e gate is pending, or completed: true once it passed. Returns ok: false with a "Lesson state stale:" error when chapters.json changed under the lesson.',
     {
       projectRoot: z.string().describe('Absolute path to the project root'),
     },
-    async ({ projectRoot }) => {
-      const result = await runVerifySection({ projectRoot });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
+    async ({ projectRoot }) => json(await runNextChapter({ projectRoot })),
   );
 
   server.tool(
-    'advanceArtifact',
-    "Rewrite the workspace's artifact-state.json so the open browser tab reveals the latest section. No-op when the lesson declares no artifact block. Should be called by the conductor right before each nextSection.",
+    'verifyChapter',
+    "Run the current chapter's verification, or final_verification (the e2e gate) when every chapter already passed. On pass: advances chapter_cursor (or sets completed_at), records the chapter's artifact when the file exists and back-fills any chapter artifact written late. On fail: leaves the cursor unchanged and returns the captured output. The final gate also reports skipped: true when the runner printed skipped tests. After the lesson completes, a further call re-runs nothing and records summary.html once it exists (artifact_recorded: true). ok: false with errors means the gate did not record a result (state save failure, unparseable command, stale state).",
     {
       projectRoot: z.string().describe('Absolute path to the project root'),
     },
-    async ({ projectRoot }) => {
-      const result = await runAdvanceArtifact({ projectRoot });
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
-    },
+    async ({ projectRoot }) => json(await runVerifyChapter({ projectRoot })),
   );
 
   server.tool(
     'configureWorkspace',
-    'Read or update the user-level ACC config at ~/.acc/config.json. With no args, returns the current effective config (defaults filled in) and whether it came from disk. With `workspace_root` and/or `course_paths`, deep-merges the patch and persists atomically. Used by the conductor for the one-time first-run prompt and for on-demand path overrides.',
+    'Read or update the user-level ACC config at ~/.acc/config.json. With no args, returns the current effective config (defaults filled in) and whether it came from disk. With `workspace_root` and/or `course_paths`, deep-merges the patch and persists atomically. Used by the course-engine for the one-time first-run prompt and for on-demand path overrides.',
     {
       workspace_root: z
         .string()
@@ -167,10 +119,7 @@ export function registerTools(server: McpServer): void {
       const args: { workspace_root?: string; course_paths?: Record<string, Record<string, string | null> | null> } = {};
       if (workspace_root !== undefined) args.workspace_root = workspace_root;
       if (course_paths !== undefined) args.course_paths = course_paths;
-      const result = await runConfigureWorkspace(args);
-      return {
-        content: [{ type: 'text' as const, text: JSON.stringify(result) }],
-      };
+      return json(await runConfigureWorkspace(args));
     },
   );
 }
@@ -179,9 +128,6 @@ export function registerTools(server: McpServer): void {
 // script. Resolve both sides through realpath so the comparison survives
 // symlinks — Claude Code installs plugins under `~/.claude/plugins/...`
 // and on some hosts that path is a symlink to a checkout in `~/workspace/`.
-// `process.argv[1]` keeps the literal symlink path while `import.meta.url`
-// resolves to the real path. A naive `===` would silently skip server
-// startup in that case.
 function _isMainEntrypoint(): boolean {
   const argvPath = process.argv[1];
   if (!argvPath) return false;
@@ -197,7 +143,7 @@ function _isMainEntrypoint(): boolean {
 if (_isMainEntrypoint()) {
   const server = new McpServer({
     name: 'agentic-community-college',
-    version: '0.2.0',
+    version: ACC_VERSION,
   });
   registerTools(server);
   const transport = new StdioServerTransport();

@@ -1,201 +1,166 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// Spy-mode mocks: ESM namespace bindings are non-writable, so vi.spyOn() on
-// `node:fs` / `node:fs/promises` fails with "Cannot redefine property". The
-// `{ spy: true }` mode wraps the real module so spies work while behavior
-// passes through unchanged.
-vi.mock('node:fs', { spy: true });
-vi.mock('node:fs/promises', { spy: true });
-
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs';
-import * as fsPromises from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import {
+  getOutputStyleStatus,
+  isClaudePluginEnabled,
+  writeOutputStyle,
+  RECOMMENDED_OUTPUT_STYLE,
+} from '../mcp/server/src/outputStyle.js';
+import { runSetOutputStyle } from '../mcp/server/src/tools/setOutputStyle.js';
 
-// Module under test — does not exist yet at red phase. The import will fail
-// and cause vitest to mark the suite as failed (meaningful red).
-import { probeOutputStyle } from '../mcp/server/src/outputStyle.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-
-const ENABLED_PLUGIN_KEY = 'learning-output-style@claude-plugins-official';
-
-let originalHome: string | undefined;
 let tempHome: string;
 
+function settingsFile(): string {
+  return path.join(tempHome, '.claude', 'settings.json');
+}
+
 function writeSettings(content: string): void {
-  const claudeDir = path.join(tempHome, '.claude');
-  fs.mkdirSync(claudeDir, { recursive: true });
-  fs.writeFileSync(path.join(claudeDir, 'settings.json'), content, 'utf8');
+  fs.mkdirSync(path.dirname(settingsFile()), { recursive: true });
+  fs.writeFileSync(settingsFile(), content, 'utf8');
 }
 
 beforeEach(() => {
-  tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'sui-course-home-'));
-  originalHome = process.env.HOME;
-  process.env.HOME = tempHome;
-  // Node's POSIX os.homedir() consults process.env.HOME first, so setting
-  // HOME is sufficient. (Spy on os.homedir would fail because node:os is an
-  // immutable ESM namespace; vi.mock with { spy: true } would also work but
-  // the env-var path is simpler and matches how the implementation should
-  // resolve the user home anyway.)
+  tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'acc-home-'));
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
-  if (originalHome === undefined) {
-    delete process.env.HOME;
-  } else {
-    process.env.HOME = originalHome;
-  }
-  try {
-    fs.rmSync(tempHome, { recursive: true, force: true });
-  } catch {
-    /* swallow */
-  }
+  fs.rmSync(tempHome, { recursive: true, force: true });
 });
 
-describe('outputStyle probe', () => {
-  it('T-013: returns ok=true when settings.json has the plugin enabled', async () => {
-    writeSettings(
-      JSON.stringify({
-        enabledPlugins: { [ENABLED_PLUGIN_KEY]: true },
-      }),
-    );
+describe('getOutputStyleStatus', () => {
+  it('reports ok when the active style is Concise (case-insensitive)', () => {
+    writeSettings(JSON.stringify({ outputStyle: 'Concise' }));
+    const s = getOutputStyleStatus(tempHome);
+    expect(s).toEqual({ active: 'Concise', recommended: 'Concise', ok: true });
 
-    const result = await probeOutputStyle();
-
-    expect(result.ok).toBe(true);
-    expect(result.warning).toBeFalsy();
+    writeSettings(JSON.stringify({ outputStyle: 'concise' }));
+    expect(getOutputStyleStatus(tempHome).ok).toBe(true);
   });
 
-  it('T-014: returns ok=false with output-style-plugin-not-enabled warning when plugin entry is false (cycle 6 H002)', async () => {
-    // Cycle 6 H002 / AC-1.1: previously this branch returned a bare {ok:false}
-    // with no warning, hiding the activation step from the student. The remediation
-    // attaches an `output-style-plugin-not-enabled` warning naming the plugin and
-    // the `claude plugins enable …` command.
-    writeSettings(
-      JSON.stringify({
-        enabledPlugins: { [ENABLED_PLUGIN_KEY]: false },
-      }),
-    );
-
-    const result = await probeOutputStyle();
-
-    expect(result.ok).toBe(false);
-    expect(result.warning).toBeDefined();
-    expect(result.warning?.kind).toBe('output-style-plugin-not-enabled');
-    expect(result.warning?.message).toContain(ENABLED_PLUGIN_KEY);
-    expect(result.warning?.message).toContain('claude plugins enable');
+  it('reports ok=false with the active name for any other style', () => {
+    writeSettings(JSON.stringify({ outputStyle: 'Explanatory' }));
+    const s = getOutputStyleStatus(tempHome);
+    expect(s.ok).toBe(false);
+    expect(s.active).toBe('Explanatory');
+    expect(s.recommended).toBe(RECOMMENDED_OUTPUT_STYLE);
   });
 
-  it('T-015: returns ok=false with structured warning when settings.json is missing', async () => {
-    // No settings file written.
-    const result = await probeOutputStyle();
-
-    expect(result.ok).toBe(false);
-    expect(result.warning).toBeTruthy();
-    expect(typeof result.warning?.kind).toBe('string');
-    expect(result.warning?.kind).toMatch(/missing/i);
-    expect(typeof result.warning?.message).toBe('string');
-    expect(result.warning?.message.length).toBeGreaterThan(0);
+  it('reports active=null when settings.json has no outputStyle', () => {
+    writeSettings(JSON.stringify({ enabledPlugins: {} }));
+    const s = getOutputStyleStatus(tempHome);
+    expect(s.active).toBeNull();
+    expect(s.ok).toBe(false);
+    expect(s.warning).toBeUndefined();
   });
 
-  it('T-016: returns ok=false with structured warning when settings.json is malformed JSON', async () => {
+  it('carries a settings-file-missing warning when the file is absent', () => {
+    const s = getOutputStyleStatus(tempHome);
+    expect(s.active).toBeNull();
+    expect(s.ok).toBe(false);
+    expect(s.warning?.kind).toBe('settings-file-missing');
+  });
+
+  it('carries a settings-parse-error warning for malformed JSON', () => {
     writeSettings('{ not json');
-
-    const result = await probeOutputStyle();
-
-    expect(result.ok).toBe(false);
-    expect(result.warning).toBeTruthy();
-    expect(typeof result.warning?.kind).toBe('string');
-    expect(result.warning?.kind).toMatch(/malformed|parse|invalid/i);
-    expect(typeof result.warning?.message).toBe('string');
-    expect(result.warning?.message.length).toBeGreaterThan(0);
+    const s = getOutputStyleStatus(tempHome);
+    expect(s.warning?.kind).toBe('settings-parse-error');
+    expect(s.ok).toBe(false);
   });
 
-  it('T-017: returns ok=false (silent) when enabledPlugins key is absent', async () => {
-    writeSettings(JSON.stringify({ someUnrelatedSetting: true }));
+  it('isClaudePluginEnabled reads enabledPlugins strictly', () => {
+    expect(isClaudePluginEnabled('toolkit@contract-hero', tempHome)).toBe(false);
+    writeSettings(JSON.stringify({ enabledPlugins: { 'toolkit@contract-hero': true, 'other@x': 'yes' } }));
+    expect(isClaudePluginEnabled('toolkit@contract-hero', tempHome)).toBe(true);
+    expect(isClaudePluginEnabled('other@x', tempHome)).toBe(false);
+    writeSettings(JSON.stringify({ enabledPlugins: [] }));
+    expect(isClaudePluginEnabled('toolkit@contract-hero', tempHome)).toBe(false);
+  });
+});
 
-    const result = await probeOutputStyle();
-
-    expect(result.ok).toBe(false);
-    // Silent disable path — must not throw, warning is optional but typically absent.
+describe('writeOutputStyle', () => {
+  it('creates settings.json when absent', async () => {
+    const r = await writeOutputStyle('Concise', tempHome);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.previous).toBeNull();
+      expect(r.path).toBe(settingsFile());
+    }
+    const parsed = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
+    expect(parsed.outputStyle).toBe('Concise');
   });
 
-  describe('source-level security guards', () => {
-    const sourcePath = path.resolve(__dirname, '../mcp/server/src/outputStyle.ts');
+  it('preserves every other key and returns the previous value', async () => {
+    writeSettings(JSON.stringify({ outputStyle: 'Explanatory', enabledPlugins: { 'x@y': true }, model: 'opus' }));
+    const r = await writeOutputStyle('Concise', tempHome);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.previous).toBe('Explanatory');
+    const parsed = JSON.parse(fs.readFileSync(settingsFile(), 'utf8'));
+    expect(parsed).toEqual({ outputStyle: 'Concise', enabledPlugins: { 'x@y': true }, model: 'opus' });
+  });
 
-    it('T-029: outputStyle.ts source contains no CLAUDE_OUTPUT_STYLE or process.env.CLAUDE references', () => {
-      const content = fs.readFileSync(sourcePath, 'utf8');
+  it('refuses to overwrite a settings file it cannot parse', async () => {
+    writeSettings('{ broken');
+    const r = await writeOutputStyle('Concise', tempHome);
+    expect(r.ok).toBe(false);
+    expect(fs.readFileSync(settingsFile(), 'utf8')).toBe('{ broken');
+  });
 
-      expect(content.indexOf('CLAUDE_OUTPUT_STYLE')).toBe(-1);
-      expect(content.indexOf('process.env.CLAUDE')).toBe(-1);
-    });
+  it('refuses to touch a settings file that exists but cannot be read', async () => {
+    if (process.getuid?.() === 0) return; // root ignores file modes
+    writeSettings(JSON.stringify({ outputStyle: 'Default', enabledPlugins: { 'x@y': true } }));
+    fs.chmodSync(settingsFile(), 0o000);
+    try {
+      const r = await writeOutputStyle('Concise', tempHome);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error).toMatch(/Failed to read/);
+      const status = getOutputStyleStatus(tempHome);
+      expect(status.warning?.kind).toBe('settings-read-error');
+    } finally {
+      fs.chmodSync(settingsFile(), 0o600);
+    }
+    expect(JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).enabledPlugins).toEqual({ 'x@y': true });
+  });
 
-    it('T-030: outputStyle.ts source contains no parent-process or system-prompt scraping', () => {
-      const content = fs.readFileSync(sourcePath, 'utf8');
+  it('refuses a settings file whose top level is not an object', async () => {
+    writeSettings('[1, 2]');
+    const r = await writeOutputStyle('Concise', tempHome);
+    expect(r.ok).toBe(false);
+    expect(fs.readFileSync(settingsFile(), 'utf8')).toBe('[1, 2]');
+  });
 
-      expect(content.indexOf('process.ppid')).toBe(-1);
-      expect(content.indexOf('parent_process')).toBe(-1);
-      expect(content.indexOf('/proc/')).toBe(-1);
-      expect(content.indexOf('systemPrompt')).toBe(-1);
-      expect(content.indexOf('system_prompt')).toBe(-1);
-      expect(content.indexOf('getppid')).toBe(-1);
-    });
+  it('reports previous: null when outputStyle held a non-string and replaces it', async () => {
+    writeSettings(JSON.stringify({ outputStyle: 42 }));
+    const r = await writeOutputStyle('Concise', tempHome);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.previous).toBeNull();
+    expect(JSON.parse(fs.readFileSync(settingsFile(), 'utf8')).outputStyle).toBe('Concise');
+  });
 
-    it('T-031: outputStyle probe only reads from <home>/.claude/settings.json', async () => {
-      writeSettings(
-        JSON.stringify({
-          enabledPlugins: { [ENABLED_PLUGIN_KEY]: true },
-        }),
-      );
+  it('preserves the existing file mode', async () => {
+    writeSettings(JSON.stringify({ outputStyle: 'Default' }));
+    fs.chmodSync(settingsFile(), 0o644);
+    await writeOutputStyle('Concise', tempHome);
+    expect(fs.statSync(settingsFile()).mode & 0o777).toBe(0o644);
+  });
+});
 
-      const expectedPath = path.join(tempHome, '.claude', 'settings.json');
-      const observedPaths: string[] = [];
+describe('setOutputStyle tool', () => {
+  it('only accepts Concise', async () => {
+    const r = await runSetOutputStyle({ style: 'Explanatory', homeDir: tempHome });
+    expect(r.ok).toBe(false);
+    expect(r.errors?.[0]).toMatch(/Concise/);
+    expect(fs.existsSync(settingsFile())).toBe(false);
+  });
 
-      const recordPath = (p: unknown): void => {
-        if (typeof p === 'string') observedPaths.push(p);
-        else if (p instanceof URL) observedPaths.push(p.pathname);
-        else if (Buffer.isBuffer(p)) observedPaths.push(p.toString('utf8'));
-      };
-
-      const realReadFileSync = fs.readFileSync;
-      const realReadFile = fs.readFile;
-      const realPromisesReadFile = fsPromises.readFile;
-
-      const syncSpy = vi
-        .spyOn(fs, 'readFileSync')
-        .mockImplementation(((file: any, opts?: any) => {
-          recordPath(file);
-          return realReadFileSync(file, opts);
-        }) as any);
-      const cbSpy = vi
-        .spyOn(fs, 'readFile')
-        .mockImplementation(((file: any, ...rest: any[]) => {
-          recordPath(file);
-          return (realReadFile as any)(file, ...rest);
-        }) as any);
-      const promiseSpy = vi
-        .spyOn(fsPromises, 'readFile')
-        .mockImplementation(((file: any, opts?: any) => {
-          recordPath(file);
-          return realPromisesReadFile(file, opts);
-        }) as any);
-
-      try {
-        await probeOutputStyle();
-      } finally {
-        syncSpy.mockRestore();
-        cbSpy.mockRestore();
-        promiseSpy.mockRestore();
-      }
-
-      expect(observedPaths.length).toBeGreaterThan(0);
-      for (const observed of observedPaths) {
-        const resolved = path.resolve(observed);
-        expect(resolved).toBe(path.resolve(expectedPath));
-      }
-    });
+  it('writes Concise and reports previous + path + note', async () => {
+    writeSettings(JSON.stringify({ outputStyle: 'Default' }));
+    const r = await runSetOutputStyle({ style: 'Concise', homeDir: tempHome });
+    expect(r.ok).toBe(true);
+    expect(r.previous).toBe('Default');
+    expect(r.path).toBe(settingsFile());
+    expect(r.note).toMatch(/\/output-style Concise/);
+    expect(getOutputStyleStatus(tempHome).ok).toBe(true);
   });
 });

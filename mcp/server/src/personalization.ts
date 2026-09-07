@@ -1,7 +1,7 @@
-// Personalization substitution — scoped exclusively to spot prompts.
-// AC-6.3: substitutePromptOnly is the ONLY function that performs {{ ... }} substitution.
-// It MUST NOT be called with target_file, target_range, verification.command, or
-// verification.endpoint as the prompt argument.
+// Personalization substitution — scoped exclusively to chapter briefs.
+// substitutePromptOnly is the ONLY function that performs {{ ... }} substitution.
+// Never call it on expected_files, tests, verification.command, or any other
+// path-shaped field.
 
 // DeclaredOptionDecl shapes — used by callers building from path.json
 export interface PersonalizationOptionDecl {

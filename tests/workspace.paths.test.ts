@@ -31,8 +31,7 @@ function lessonWith(installCmd?: string): LessonData {
     title: 'paths-lesson',
     summary: 's',
     personalization_options: [],
-    build_command: 'echo build',
-    workspace: { files: [], host: 'host' },
+    workspace: { files: [], solution_files: [], host: 'host' },
   };
   if (installCmd !== undefined) {
     lesson.workspace = { ...lesson.workspace!, host_install_command: installCmd };

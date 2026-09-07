@@ -1,120 +1,142 @@
+// outputStyle.ts — the one reader of `~/.claude/settings.json`, plus the
+// advisory output-style check and its opt-in writer.
+//
+// ACC v0.3 recommends the built-in `Concise` style: the chat stays short and
+// every explanation lives in the HTML artifacts. Nothing here gates a tool.
+// `start` reports the status; `setOutputStyle` writes the value only when the
+// learner said yes. `dynamicProbes` and `nextChapter` reuse
+// `readClaudeSettings` / `isClaudePluginEnabled` for plugin checks.
+
 import * as fs from 'node:fs';
+import * as fsPromises from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { atomicWriteFile } from './atomicWrite.js';
+import type { OutputStyleWarning } from './warnings.js';
 
-export interface OutputStyleWarning {
-  kind: string;
-  message: string;
-}
+export type { OutputStyleWarning };
 
-export interface OutputStyleResult {
-  ok: boolean;
-  warning?: OutputStyleWarning;
-}
+export const RECOMMENDED_OUTPUT_STYLE = 'Concise';
 
-/** Named output style currently active in the user's Claude Code session. */
-export type ActiveOutputStyle = 'learning' | 'explanatory' | 'default' | 'other' | 'unknown';
+export type ClaudeSettingsResult =
+  | { ok: true; file: string; settings: Record<string, unknown> }
+  | {
+      ok: false;
+      file: string;
+      /** `missing` is ENOENT only. Any other read failure is `read-error`. */
+      kind: 'missing' | 'read-error' | 'parse-error' | 'not-object';
+      detail: string;
+    };
 
-const PLUGIN_KEY = 'learning-output-style@claude-plugins-official';
-
-const PLUGIN_NOT_ENABLED_WARNING: OutputStyleWarning = {
-  kind: 'output-style-plugin-not-enabled',
-  message: `The learning output style plugin is not enabled. To activate it, run: claude plugins enable learning-output-style@claude-plugins-official`,
-};
-
-export async function probeOutputStyle(): Promise<OutputStyleResult> {
-  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-
+/** Read and parse `~/.claude/settings.json` without throwing. */
+export function readClaudeSettings(homeDir?: string): ClaudeSettingsResult {
+  const file = path.join(homeDir ?? os.homedir(), '.claude', 'settings.json');
   let raw: string;
   try {
-    raw = fs.readFileSync(settingsPath, 'utf8');
-  } catch {
+    raw = fs.readFileSync(file, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
     return {
       ok: false,
-      warning: {
-        kind: 'settings-file-missing',
-        message: `Settings file not found at ${settingsPath}`,
-      },
+      file,
+      kind: code === 'ENOENT' ? 'missing' : 'read-error',
+      detail: (err as Error).message,
     };
   }
-
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch (err) {
-    return {
-      ok: false,
-      warning: {
-        kind: 'settings-parse-error',
-        message: `Failed to parse ${settingsPath}: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
+    return { ok: false, file, kind: 'parse-error', detail: (err as Error).message };
   }
-
-  if (
-    typeof parsed !== 'object' ||
-    parsed === null ||
-    !('enabledPlugins' in parsed) ||
-    typeof (parsed as Record<string, unknown>)['enabledPlugins'] !== 'object' ||
-    (parsed as Record<string, unknown>)['enabledPlugins'] === null
-  ) {
-    return { ok: false, warning: PLUGIN_NOT_ENABLED_WARNING };
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, file, kind: 'not-object', detail: 'settings.json must contain a JSON object' };
   }
-
-  // Phase F round-2 fast-follow L009: enabledPlugins as an Array (e.g. `[]`)
-  // passes typeof === 'object' but is structurally wrong — settings.json is
-  // expected to use the object/record shape. Distinguish this from "plugin
-  // not enabled" so the user knows to fix the file shape, not enable a
-  // plugin. The settings-parse-error kind already covers other malformed
-  // settings shapes.
-  if (Array.isArray((parsed as Record<string, unknown>)['enabledPlugins'])) {
-    return {
-      ok: false,
-      warning: {
-        kind: 'settings-parse-error',
-        message: `~/.claude/settings.json field 'enabledPlugins' must be an object, got an array. Fix the file shape.`,
-      },
-    };
-  }
-
-  const enabledPlugins = (parsed as Record<string, unknown>)['enabledPlugins'] as Record<string, unknown>;
-  const pluginEnabled = enabledPlugins[PLUGIN_KEY];
-
-  if (pluginEnabled === true) {
-    return { ok: true };
-  }
-
-  return { ok: false, warning: PLUGIN_NOT_ENABLED_WARNING };
+  return { ok: true, file, settings: parsed as Record<string, unknown> };
 }
 
+/** True iff `enabledPlugins[pluginKey] === true` in settings.json. */
+export function isClaudePluginEnabled(pluginKey: string, homeDir?: string): boolean {
+  const settings = readClaudeSettings(homeDir);
+  if (!settings.ok) return false;
+  const enabled = settings.settings['enabledPlugins'];
+  if (typeof enabled !== 'object' || enabled === null || Array.isArray(enabled)) return false;
+  return (enabled as Record<string, unknown>)[pluginKey] === true;
+}
+
+export interface OutputStyleStatus {
+  /** The `outputStyle` value in settings.json, or null when unset/unreadable. */
+  active: string | null;
+  recommended: typeof RECOMMENDED_OUTPUT_STYLE;
+  /** True when `active` is the recommended style (case-insensitive). */
+  ok: boolean;
+  warning?: OutputStyleWarning;
+}
+
+function warningFor(result: Extract<ClaudeSettingsResult, { ok: false }>): OutputStyleWarning {
+  switch (result.kind) {
+    case 'missing':
+      return { kind: 'settings-file-missing', message: `Settings file not found at ${result.file}` };
+    case 'read-error':
+      return { kind: 'settings-read-error', message: `Failed to read ${result.file}: ${result.detail}` };
+    default:
+      return { kind: 'settings-parse-error', message: `Failed to parse ${result.file}: ${result.detail}` };
+  }
+}
+
+export function getOutputStyleStatus(homeDir?: string): OutputStyleStatus {
+  const settings = readClaudeSettings(homeDir);
+  const raw = settings.ok ? settings.settings['outputStyle'] : undefined;
+  const active = typeof raw === 'string' && raw.length > 0 ? raw : null;
+  const status: OutputStyleStatus = {
+    active,
+    recommended: RECOMMENDED_OUTPUT_STYLE,
+    ok: active !== null && active.toLowerCase() === RECOMMENDED_OUTPUT_STYLE.toLowerCase(),
+  };
+  if (!settings.ok) status.warning = warningFor(settings);
+  return status;
+}
+
+export type WriteOutputStyleResult =
+  | { ok: true; previous: string | null; path: string }
+  | { ok: false; error: string };
+
 /**
- * Read which named output style is currently active in `~/.claude/settings.json`.
- * Used by `setOutputMode` to warn when the user picks a mode in ACC that
- * doesn't match what their Claude Code session is actually in.
- *
- * Returns `'unknown'` when the settings file is unreadable or doesn't declare
- * `outputStyle`. Returns `'other'` for any named style ACC doesn't itself
- * understand (custom user-defined styles, future Claude Code additions).
+ * Persist `outputStyle` into settings.json. Creates the file only when it is
+ * absent (ENOENT). Any file that exists but cannot be read or parsed is left
+ * untouched, so an unreadable or hand-edited settings file is never
+ * clobbered. Preserves the existing file mode.
  */
-export function readActiveOutputStyle(): ActiveOutputStyle {
-  const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
-  let raw: string;
-  try {
-    raw = fs.readFileSync(settingsPath, 'utf8');
-  } catch {
-    return 'unknown';
+export async function writeOutputStyle(
+  style: string,
+  homeDir?: string,
+): Promise<WriteOutputStyleResult> {
+  const read = readClaudeSettings(homeDir);
+  if (!read.ok && read.kind !== 'missing') {
+    return { ok: false, error: warningFor(read).message };
   }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return 'unknown';
+  const file = read.file;
+  const settings = read.ok ? read.settings : {};
+  const previousRaw = settings['outputStyle'];
+  const previous = typeof previousRaw === 'string' ? previousRaw : null;
+  settings['outputStyle'] = style;
+
+  let mode = 0o600;
+  if (read.ok) {
+    try {
+      mode = (await fsPromises.stat(file)).mode & 0o777;
+    } catch {
+      /* keep the private default */
+    }
   }
-  if (typeof parsed !== 'object' || parsed === null) return 'unknown';
-  const style = (parsed as Record<string, unknown>)['outputStyle'];
-  if (typeof style !== 'string') return 'unknown';
-  if (style === 'learning') return 'learning';
-  if (style === 'explanatory') return 'explanatory';
-  if (style === 'default') return 'default';
-  return 'other';
+  try {
+    await fsPromises.mkdir(path.dirname(file), { recursive: true });
+    await atomicWriteFile(file, `${JSON.stringify(settings, null, 2)}\n`, {
+      mode,
+      tmpPrefix: '.settings.json.tmp',
+    });
+  } catch (err) {
+    return { ok: false, error: `Failed to write ${file}: ${(err as Error).message}` };
+  }
+  return { ok: true, previous, path: file };
 }

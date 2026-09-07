@@ -1,8 +1,6 @@
 import { spawnSync as nodeSpawnSync } from 'node:child_process';
 import * as path from 'node:path';
-import type { VerificationSpec } from './schemas/sections.js';
-
-export type { VerificationSpec };
+import type { ResolvedVerification } from './progress.js';
 
 export interface VerificationResult {
   pass: boolean;
@@ -18,7 +16,12 @@ export type VerifySpawnFn = (
 
 export interface VerifyOptions {
   spawn?: VerifySpawnFn;
+  /** Wall-clock bound for the verification subprocess. */
+  timeoutMs?: number;
 }
+
+/** `spawnSync` blocks the MCP server, so every verification gets a bound. */
+export const DEFAULT_VERIFY_TIMEOUT_MS = 600_000;
 
 export class VerificationModeUnsupportedError extends Error {
   public readonly mode: string;
@@ -32,7 +35,9 @@ export class VerificationModeUnsupportedError extends Error {
 /**
  * Parse a shell-style command string into a { cmd, args } pair.
  * Handles double-quoted segments (strips quotes, preserves internal spaces).
- * Does NOT handle backslash escapes or single-quoted args.
+ * Does NOT handle backslash escapes or single-quoted args. The command runs
+ * without a shell, so operators (`&&`, `|`, redirects) are never interpreted;
+ * `schemas/chapters.ts` rejects them at validation time.
  */
 export function parseCommand(cmd: string): { cmd: string; args: string[] } {
   const tokens: string[] = [];
@@ -71,20 +76,22 @@ export function parseCommand(cmd: string): { cmd: string; args: string[] } {
 }
 
 /**
- * Run verification against the workspace.
+ * Run a resolved verification spec against the workspace.
  *
  * Supported modes: `compile` (any build/typecheck command — pass on exit 0)
  * and `test-suite` (vitest / playwright / similar — pass on exit 0). Test
- * stubbing flows through `VerifyOptions.spawn`.
+ * stubbing flows through `VerifyOptions.spawn`. Throws on an unparseable
+ * command (an authoring error, not a learner failure).
  */
 export async function runVerification(
-  adapter: VerificationSpec,
+  adapter: ResolvedVerification,
   cwd: string,
   opts?: VerifyOptions,
 ): Promise<VerificationResult> {
   if (adapter.mode === 'compile' || adapter.mode === 'test-suite') {
     const { cmd, args } = parseCommand(adapter.command);
-    const resolvedCwd = adapter.cwd ? path.resolve(cwd, adapter.cwd) : cwd;
+    const resolvedCwd = path.resolve(cwd, adapter.cwd);
+    const timeout = opts?.timeoutMs ?? DEFAULT_VERIFY_TIMEOUT_MS;
 
     const spawnFn: VerifySpawnFn = opts?.spawn ?? ((c, a, o) => {
       const syncResult = nodeSpawnSync(c, a, {
@@ -92,6 +99,16 @@ export async function runVerification(
         cwd: o?.cwd,
         timeout: o?.timeout,
       });
+      if (syncResult.error) {
+        // ENOENT (binary missing), ETIMEDOUT, EACCES: spawnSync reports these
+        // on `error` with empty streams. Put the reason where the learner
+        // reads it.
+        return {
+          status: null,
+          stdout: (syncResult.stdout as string) ?? '',
+          stderr: `spawn failed: ${(syncResult.error as Error).message}`,
+        };
+      }
       return {
         status: syncResult.status,
         stdout: (syncResult.stdout as string) ?? '',
@@ -100,7 +117,7 @@ export async function runVerification(
     });
 
     try {
-      const result = spawnFn(cmd, args, { cwd: resolvedCwd });
+      const result = spawnFn(cmd, args, { cwd: resolvedCwd, timeout });
       const output = (result.stdout ?? '') + (result.stderr ?? '');
       return {
         pass: result.status === 0,

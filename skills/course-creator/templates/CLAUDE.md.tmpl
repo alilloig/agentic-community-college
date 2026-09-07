@@ -1,21 +1,34 @@
-# {{ name }} — Claude's working notes
+# {{ name }}: Claude's working notes
 
-A content plugin for the [Agentic Community College (ACC)](https://github.com/contract-hero/agentic-community-college) framework. **No runtime code here** — the framework owns that.
+A content plugin for the [Agentic Community College (ACC)](https://github.com/contract-hero/agentic-community-college) framework. **No runtime code here.** The framework owns that.
 
 ## What you can do here
 
-- **Author a new lesson** — don't write files by hand. Invoke ACC's `lesson-creator` skill and point it at this repo + a reference codebase. The skill emits the entire `lessons/<slug>/` tree.
-- **Refine an existing lesson** — edit `lessons/<slug>/{lesson.json, sections.json, sections/*.md, artifact/template.html, tests/}` directly. Re-run the lesson-creator's validation pass after edits to confirm the prompts still produce passing tests in both output modes.
-- **Add or refine a probe** — edit `accContent.probes` in `.claude-plugin/plugin.json`. Four kinds are supported: `filesystem-exists`, `http-get`, `shell-exit-zero`, `claude-plugin-enabled`. The full shape lives in ACC's `mcp/server/src/schemas/courseProbes.ts`.
+- **Author a new lesson.** Do not write files by hand. Invoke ACC's `lesson-creator` skill (`/agentic-community-college:create-lesson`) and point it at this repo, a topic, and its docs. The skill emits the whole `lessons/<slug>/` tree.
+- **Refine an existing lesson.** Edit `lessons/<slug>/{lesson.json, chapters.json, chapters/*.md, docs/, description.md, reference-app/}` directly. Re-run the lesson-creator validation pass after edits so `validation.json` stays true.
+- **Add or refine a probe.** Edit `accContent.probes` in `.claude-plugin/plugin.json`. Four kinds: `filesystem-exists`, `http-get`, `shell-exit-zero`, `claude-plugin-enabled`. The full shape lives in ACC's `mcp/server/src/schemas/courseProbes.ts`.
 
 ## What NOT to do here
 
-- Don't add MCP server code, agents, or framework skills. Those live in `agentic-community-college`.
-- Don't add `commands/`, top-level `agents/`, or `skills/` directories — this is content-only. Including those would make ACC's discovery treat the manifest as a regular plugin instead of a course plugin.
+- Do not add MCP server code, agents, or framework skills. Those live in `agentic-community-college`.
+- Do not add top-level `agents/` or `skills/` directories. This is content only, plus the single `commands/start.md` wrapper.
+
+## Lesson layout
+
+```
+lessons/<slug>/
+├── lesson.json          slug, title, summary, prerequisites, docs, workspace { host, host_install_command, verification_cwd, solution_files, files }
+├── description.md
+├── docs/                curated docs snapshot + INDEX.md
+├── chapters.json        schema_version 2; chapters[] with id, title, brief_md, key_idea, expected_files, tests, verification; final_verification
+├── chapters/NN-<name>.md What we implement / Done when / Implementation notes; NN is the position, <name> is the chapter id without its cNN- prefix
+├── reference-app/       complete solution INCLUDING every test (unit + e2e)
+└── validation.json
+```
+
+The workspace seed is `reference-app/` minus `solution_files`. The learner's copy holds scaffold and tests, never the solution.
 
 ## Probe declaration cheat sheet
-
-Each entry under `accContent.probes` is one prerequisite check. Common shape:
 
 ```json
 {
@@ -24,22 +37,14 @@ Each entry under `accContent.probes` is one prerequisite check. Common shape:
   "message_pass": "Tool installed.",
   "message_fail": "Install <tool> from <url>.",
   "params": { "command": "tool", "args": ["--version"] },
-  "remediation": {
-    "kind": "shell",
-    "command": "brew install tool",
-    "timeout_ms": 60000
-  }
+  "remediation": { "kind": "shell", "command": "brew install tool", "timeout_ms": 60000 }
 }
 ```
 
-Probe IDs are unique within this course. Lessons reference them by id in their `lesson.json:prerequisites`; the conductor runs each via `runPreflightProbe` between `selectLesson` and `setPersonalization`.
+Probe ids are unique within this course. Lessons reference them in `lesson.json:prerequisites`. The course-engine runs each via `runPreflightProbe` between `selectLesson` and `setPersonalization`.
 
-## How a session runs (end-to-end)
+## How a session runs
 
-1. User runs `/agentic-community-college:start` from their `projectRoot`.
-2. ACC's `course-engine` skill calls `start` → discovers this plugin via `~/.claude/plugins/installed_plugins.json`, validates every lesson manifest pair + the probes block, and renders the catalog.
-3. User picks a namespaced slug → `selectLesson` mints v4 state, seeds the workspace.
-4. If the picked lesson has prerequisites, the conductor runs them via `runPreflightProbe` — passing each, asking the user before triggering any remediation.
-5. User picks `learning` or `explanatory` → `setOutputMode`.
-6. User answers personalization → `setPersonalization`.
-7. `course-conductor` agent loops: `advanceArtifact` → `nextSection` → edits → `verifySection` → repeat.
+`/{{ name }}:start` hands the session to ACC's `course-engine` skill, which documents every step from the catalog to the chapter loop.
+
+ACC's 8 MCP tools: `start`, `runPreflightProbe`, `selectLesson`, `setPersonalization`, `setOutputStyle`, `nextChapter`, `verifyChapter`, `configureWorkspace`.

@@ -1,0 +1,144 @@
+<!doctype html>
+<!--
+  ACC chapter artifact template (skills/chapter-artifact/templates/chapter.html.tmpl).
+  Conductor: fill every {{ placeholder }}, keep the section order, delete these
+  comments. Rules: ../references/conventions.md. The file must stay
+  self-contained: no <script src>, no <link href>, no @import, no web fonts,
+  no images loaded from a URL. Inline SVG only.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>{{ lesson_title }} · Chapter {{ n }} of {{ m }} · {{ chapter_title }}</title>
+<style>
+  :root {
+    --bg:#0e1117; --panel:#161b22; --panel-2:#1f242d; --border:#2a313c;
+    --fg:#d5d9e0; --muted:#8b94a7; --accent:#79b8ff; --good:#6dd56d;
+    --warn:#e6c07b; --bad:#e08585; --code-bg:#0b0e13;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-size: 16px; line-height: 1.55; }
+  body { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  header { margin-bottom: 1.5rem; }
+  .eyebrow { color: var(--muted); font-size: .85rem; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 .4rem; }
+  h1 { font-size: 1.7rem; margin: 0 0 .8rem; letter-spacing: -.01em; }
+  h2 { font-size: 1.15rem; margin: 0 0 .7rem; padding-bottom: .3rem; border-bottom: 1px solid var(--border); }
+  p { margin: 0 0 .8rem; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: .92em; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: .9rem 1rem; overflow-x: auto; margin: 0; }
+  pre code { background: none; padding: 0; font-size: .85rem; line-height: 1.5; }
+  .callout { background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: 6px; padding: .8rem 1rem; margin: 0; }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem 1.4rem 1.3rem; margin: 1rem 0; }
+  figure { margin: 0 0 1.2rem; }
+  figure:last-child { margin-bottom: 0; }
+  figcaption { color: var(--muted); font-size: .85rem; margin: .4rem 0 .5rem; }
+  figure.snippet figcaption { margin: 0 0 .4rem; }
+  figure.snippet figcaption code { color: var(--fg); }
+  svg { max-width: 100%; height: auto; display: block; }
+  .box { fill: var(--panel-2); stroke: var(--border); stroke-width: 1.2; }
+  .box.hi { stroke: var(--accent); stroke-width: 1.6; }
+  .lbl { fill: var(--fg); font-size: 13px; font-weight: 600; }
+  .sub { fill: var(--muted); font-size: 11px; }
+  .arrow { stroke: var(--muted); stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+  .edge { fill: var(--muted); font-size: 11px; }
+  ul.tests { list-style: none; padding: 0; margin: 0; }
+  ul.tests li { padding: .45rem 0; border-bottom: 1px solid var(--border); }
+  ul.tests li:last-child { border-bottom: 0; }
+  ul.tests code { color: var(--good); }
+  footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); display: flex; justify-content: space-between; gap: 1rem; color: var(--muted); font-size: .9rem; }
+  @media (max-width: 720px) {
+    body { padding: 1.2rem 1rem 3rem; }
+    h1 { font-size: 1.4rem; }
+    section { padding: .9rem 1rem 1rem; }
+    footer { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p class="eyebrow">{{ lesson_title }} · Chapter {{ n }} of {{ m }}</p>
+  <h1>{{ chapter_title }}</h1>
+  <!-- key_idea: verbatim from chapters.json -->
+  <p class="callout"><strong>Key idea.</strong> {{ key_idea }}</p>
+</header>
+
+<section id="built">
+  <h2>What was built</h2>
+  <!-- One paragraph. What the code does now that it did not do before this chapter. -->
+  <p>{{ what_was_built }}</p>
+</section>
+
+<section id="how">
+  <h2>How it works</h2>
+  <!-- Hand-draw the data/control flow of THIS chapter's code. Max 8 boxes.
+       Label every arrow. Give the key-idea box class="box hi".
+       The three boxes below show the style; replace them. -->
+  <figure>
+    <svg viewBox="0 0 800 220" role="img" aria-label="{{ diagram_label }}">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#8b94a7"/>
+        </marker>
+      </defs>
+      <rect class="box" x="40" y="80" width="200" height="60" rx="8"/>
+      <text class="lbl" x="140" y="106" text-anchor="middle">{{ box_1 }}</text>
+      <text class="sub" x="140" y="124" text-anchor="middle">{{ box_1_sub }}</text>
+      <path class="arrow" d="M240,110 L300,110"/>
+      <text class="edge" x="270" y="100" text-anchor="middle">{{ edge_1 }}</text>
+      <rect class="box hi" x="300" y="80" width="200" height="60" rx="8"/>
+      <text class="lbl" x="400" y="106" text-anchor="middle">{{ box_2 }}</text>
+      <text class="sub" x="400" y="124" text-anchor="middle">{{ box_2_sub }}</text>
+      <path class="arrow" d="M500,110 L560,110"/>
+      <text class="edge" x="530" y="100" text-anchor="middle">{{ edge_2 }}</text>
+      <rect class="box" x="560" y="80" width="200" height="60" rx="8"/>
+      <text class="lbl" x="660" y="106" text-anchor="middle">{{ box_3 }}</text>
+      <text class="sub" x="660" y="124" text-anchor="middle">{{ box_3_sub }}</text>
+    </svg>
+    <figcaption>{{ diagram_caption }}</figcaption>
+  </figure>
+</section>
+
+<section id="code">
+  <h2>The code</h2>
+  <!-- 2 to 4 snippets, verbatim from the files written in the workspace, HTML-escaped.
+       Caption: file path + why it matters, one line. Duplicate the figure per snippet. -->
+  <figure class="snippet">
+    <figcaption><code>{{ snippet_1_file }}</code> · {{ snippet_1_why }}</figcaption>
+    <pre><code>{{ snippet_1_code }}</code></pre>
+  </figure>
+  <figure class="snippet">
+    <figcaption><code>{{ snippet_2_file }}</code> · {{ snippet_2_why }}</figcaption>
+    <pre><code>{{ snippet_2_code }}</code></pre>
+  </figure>
+</section>
+
+<section id="tests">
+  <h2>Tests that prove it</h2>
+  <!-- One item per test in the chapter's test files. Real names only. -->
+  <ul class="tests">
+    <li><code>{{ test_1_name }}</code> asserts {{ test_1_assertion }}</li>
+    <li><code>{{ test_2_name }}</code> asserts {{ test_2_assertion }}</li>
+  </ul>
+</section>
+
+<section id="next">
+  <h2>Next</h2>
+  <!-- One line on what the next chapter adds. Last chapter: say the e2e gate runs next. -->
+  <p>{{ next_line }}</p>
+</section>
+
+<footer>
+  <!-- Relative filenames only. Omit the previous link on chapter 1.
+       On the last chapter, point the next link at summary.html. -->
+  <a href="{{ prev_file }}">&larr; Previous chapter</a>
+  <a href="{{ next_file }}">Next chapter &rarr;</a>
+</footer>
+
+</body>
+</html>

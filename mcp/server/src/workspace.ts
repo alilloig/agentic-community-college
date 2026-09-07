@@ -2,18 +2,22 @@
 //
 // Each lesson with a workspace block in lesson.json gets a course-managed
 // workspace under ~/.acc/workspaces/<slug>/. The workspace is:
-//   - seeded with the path's host directory (package.json, vite.config.ts,
-//     tsconfig*, index.html, src/main.tsx, etc.)
-//   - populated with starter files declared in path.json workspace.files[]
+//   - seeded with the lesson's host directory (the complete reference app:
+//     scaffold, config, tests, solution)
+//   - stripped of every workspace.solution_files entry, so the learner's copy
+//     holds scaffold + tests and the conductor writes the solution chapter by
+//     chapter
+//   - populated with starter files declared in lesson.json workspace.files[]
 //   - tagged with a .course-state.json metadata file that fingerprints the
 //     host tarball; re-running prepareWorkspace with a matching fingerprint
 //     no-ops, while a mismatch archives the old workspace and rebuilds.
 //   - optionally bootstrapped with `pnpm install` (or whatever
 //     workspace.host_install_command declares) on first creation.
 //
-// Tools resolve verifySpot's cwd, target_file_absolute, and rung-3 auto-write
-// targets through this module; the workspace is the only filesystem location
-// the lesson code edits.
+// selectLesson calls prepareWorkspace and stores the result as
+// state.workspace_path; verifyChapter runs the verification command inside
+// that stored path. The workspace is the only filesystem location the lesson
+// code edits.
 
 import * as fsPromises from 'node:fs/promises';
 import * as fs from 'node:fs';
@@ -25,6 +29,7 @@ import type { LessonData } from './schemas/lesson.js';
 import { validateWorkspaceMeta, WORKSPACE_META_SCHEMA_VERSION } from './schemas/workspace.js';
 import type { WorkspaceMeta } from './schemas/workspace.js';
 import { atomicWriteFile } from './atomicWrite.js';
+import { containedPath, PathTraversalError } from './pathSafety.js';
 import { envFileContents } from './pathResolver.js';
 
 export type { WorkspaceMeta };
@@ -63,6 +68,9 @@ export interface PrepareWorkspaceResult {
   archivedTo?: string;
   /** Captured stdout/stderr lines from the install command, if any ran. */
   installLogs?: string[];
+  /** Workspace-relative solution files removed from the seeded copy. Only
+   * present when a fresh workspace was minted. */
+  strippedFiles?: string[];
 }
 
 export class WorkspacePrepareError extends Error {
@@ -86,6 +94,19 @@ export class WorkspacePrepareError extends Error {
 
 export function defaultWorkspaceBase(): string {
   return path.join(os.homedir(), '.acc', 'workspaces');
+}
+
+/**
+ * Directory name for a lesson's workspace. Two courses may ship the same
+ * lesson slug, so the name carries the course plugin name (without its
+ * marketplace suffix): `acc-claude-sdk@local/01-basic-agent` becomes
+ * `acc-claude-sdk__01-basic-agent`.
+ */
+export function workspaceDirName(namespacedSlug: string): string {
+  const slash = namespacedSlug.indexOf('/');
+  if (slash <= 0) return namespacedSlug;
+  const course = namespacedSlug.slice(0, slash).replace(/@.*$/, '');
+  return `${course}__${namespacedSlug.slice(slash + 1)}`;
 }
 
 export function getWorkspacePath(slug: string, opts: WorkspaceOptions = {}): string {
@@ -161,11 +182,34 @@ export async function prepareWorkspace(
   // 4a. Seed host tree.
   await copyDirectoryTree(hostDir, workspacePath);
 
+  // 4a'. Strip the solution. Paths are schema-validated; `containedPath`
+  //      re-checks each one against the workspace root before anything is
+  //      deleted. An entry the host does not contain is an authoring error:
+  //      silently skipping it would leave the real solution in the workspace
+  //      while the report says it was removed.
+  const strippedFiles: string[] = [];
+  const missingSolutionFiles: string[] = [];
+  for (const rel of lessonData.workspace.solution_files) {
+    const target = resolveInsideWorkspace(workspacePath, rel, 'solution_files');
+    if (await pathExists(target)) {
+      await fsPromises.rm(target, { recursive: true, force: true });
+      strippedFiles.push(rel);
+    } else {
+      missingSolutionFiles.push(rel);
+    }
+  }
+  if (missingSolutionFiles.length > 0) {
+    throw new WorkspacePrepareError(
+      'invalid-config',
+      `workspace.solution_files entries are absent from host '${lessonData.workspace.host}': ${missingSolutionFiles.join(', ')}`,
+    );
+  }
+
   // 4b. Copy starter files into their declared workspace paths.
   const starterFiles: string[] = [];
   for (const file of lessonData.workspace.files) {
     const starterAbs = path.join(lessonDir, file.starter);
-    const targetAbs = path.join(workspacePath, file.path);
+    const targetAbs = resolveInsideWorkspace(workspacePath, file.path, 'files[].path');
     if (!(await pathExists(starterAbs))) {
       throw new WorkspacePrepareError(
         'starter-missing',
@@ -211,10 +255,37 @@ export async function prepareWorkspace(
     );
   }
 
-  const result: PrepareWorkspaceResult = { workspacePath, created: true };
+  const result: PrepareWorkspaceResult = { workspacePath, created: true, strippedFiles };
   if (archivedTo !== undefined) result.archivedTo = archivedTo;
   if (installLogs !== undefined) result.installLogs = installLogs;
   return result;
+}
+
+/**
+ * Resolve a manifest-declared, workspace-relative path and refuse anything
+ * that escapes the workspace or names the workspace root itself.
+ */
+function resolveInsideWorkspace(workspacePath: string, rel: string, field: string): string {
+  let abs: string;
+  try {
+    abs = containedPath(workspacePath, rel);
+  } catch (err) {
+    if (err instanceof PathTraversalError) {
+      throw new WorkspacePrepareError(
+        'invalid-config',
+        `workspace.${field} entry '${rel}' resolves outside the workspace`,
+        err,
+      );
+    }
+    throw err;
+  }
+  if (abs === path.resolve(workspacePath)) {
+    throw new WorkspacePrepareError(
+      'invalid-config',
+      `workspace.${field} entry '${rel}' resolves to the workspace root`,
+    );
+  }
+  return abs;
 }
 
 /** Removes the workspace directory entirely and any archived siblings. */

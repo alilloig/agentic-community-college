@@ -14,7 +14,6 @@
 //   - `null` sentinels delete: `course_paths['x@1']: null` drops the whole
 //     plugin block; `course_paths['x@1']: { sandbox: null }` drops just that id.
 
-import { probeOutputStyle } from '../outputStyle.js';
 import {
   accConfigExists,
   loadAccConfig,
@@ -74,11 +73,6 @@ function configsEqual(a: AccConfig, b: AccConfig): boolean {
 export async function runConfigureWorkspace(
   args: ConfigureWorkspaceArgs = {},
 ): Promise<ConfigureWorkspaceResult> {
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
-  }
-
   const { workspace_root, course_paths, homeDir } = args;
   let current: AccConfig;
   let fromDisk: boolean;

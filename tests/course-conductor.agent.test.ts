@@ -4,25 +4,46 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Regression test for the May 2026 conductor-malfunction bug
- * (acc-conductor-malfunction.html in acc-deepbook-test). The agent's
+ * Regression test for the May 2026 conductor-malfunction bug: the agent's
  * frontmatter shipped with `tools: []`, which strips the subagent of every
- * tool — empty array is NOT "inherit from parent". The subagent could not
- * invoke any MCP tool from its prompt, and the course-engine handoff failed
- * silently with `tool_uses: 0`.
+ * tool (an empty array is NOT "inherit from parent"). The course-engine
+ * handoff then failed silently with `tool_uses: 0`.
  *
- * This test reads the agent file as text, parses just enough of the YAML
- * frontmatter to introspect `tools`, and asserts the load-bearing MCP tools
- * are listed under the canonical short form `mcp__<server>__<tool>`.
+ * v0.3: the conductor drives the chapter loop through exactly two MCP tools,
+ * `nextChapter` and `verifyChapter`, plus the file/shell tools it needs to
+ * implement chapters and write artifacts, plus AskUserQuestion to pause.
  */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const AGENT_PATH = path.resolve(
-  __dirname,
-  '..',
-  'agents',
-  'course-conductor.md',
-);
+const AGENT_PATH = path.resolve(__dirname, '..', 'agents', 'course-conductor.md');
+
+const MCP_PREFIX = 'mcp__plugin_agentic-community-college_agentic-community-college__';
+
+const EXPECTED_TOOLS = [
+  'Read',
+  'Write',
+  'Edit',
+  'Bash',
+  'Glob',
+  'Grep',
+  'AskUserQuestion',
+  `${MCP_PREFIX}nextChapter`,
+  `${MCP_PREFIX}verifyChapter`,
+];
+
+const RETIRED_TOOLS = [
+  'setOutputMode',
+  'advanceArtifact',
+  'nextSection',
+  'verifySection',
+  'selectStyle',
+  'requestHint',
+  'nextSpot',
+  'verifySpot',
+  'getNextPrompt',
+];
+
+const SETUP_TOOLS = ['selectLesson', 'setOutputStyle', 'setPersonalization', 'start', 'runPreflightProbe'];
 
 interface Frontmatter {
   raw: string;
@@ -37,9 +58,6 @@ function readFrontmatter(filePath: string): Frontmatter {
 }
 
 function extractTools(yaml: string): string[] {
-  // `tools:` accepts two YAML shapes: a flow-style list on one line, or a
-  // block-style list with each entry on its own `- ` line. Both must produce
-  // a non-empty array of strings.
   const oneLine = /^tools:\s*\[(.*?)\]\s*$/m.exec(yaml);
   if (oneLine) {
     return oneLine[1]
@@ -61,39 +79,19 @@ describe('agents/course-conductor.md frontmatter', () => {
   const fm = readFrontmatter(AGENT_PATH);
   const tools = extractTools(fm.raw);
 
-  it('has a non-empty tools list (regression: tools: [] strips all bindings)', () => {
-    expect(tools.length).toBeGreaterThan(0);
+  it('declares name: course-conductor', () => {
+    expect(fm.raw).toMatch(/^name:\s*course-conductor\s*$/m);
   });
 
-  it('lists the three load-bearing MCP tools under the canonical long form', () => {
-    const required = [
-      'mcp__plugin_agentic-community-college_agentic-community-college__advanceArtifact',
-      'mcp__plugin_agentic-community-college_agentic-community-college__nextSection',
-      'mcp__plugin_agentic-community-college_agentic-community-college__verifySection',
-    ];
-    for (const tool of required) {
-      expect(tools, `missing required MCP tool: ${tool}`).toContain(tool);
-    }
+  it('lists exactly the v0.3 tool set (regression: tools: [] strips all bindings)', () => {
+    expect(new Set(tools)).toEqual(new Set(EXPECTED_TOOLS));
+    expect(tools).toHaveLength(EXPECTED_TOOLS.length);
   });
 
-  it('lists AskUserQuestion so the conductor can pause between sections', () => {
-    // Pacing — the conductor MUST pause via AskUserQuestion at the end of
-    // each section. Without this binding the loop would silently blast
-    // through multiple sections per turn, even in explanatory mode.
-    expect(tools).toContain('AskUserQuestion');
-  });
-
-  it('does NOT reference retired tool names from the old phase/spot runtime', () => {
-    const retired = [
-      'selectStyle',
-      'getNextPrompt',
-      'requestHint',
-      'nextSpot',
-      'verifySpot',
-    ];
-    for (const fragment of retired) {
+  it('does NOT bind retired tool names (v0.2 section runtime + older phase/spot runtime)', () => {
+    for (const fragment of RETIRED_TOOLS) {
       for (const tool of tools) {
-        expect(tool, `still references retired tool fragment '${fragment}': ${tool}`).not.toMatch(
+        expect(tool, `still references retired tool '${fragment}': ${tool}`).not.toMatch(
           new RegExp(`__${fragment}$`),
         );
       }
@@ -101,8 +99,7 @@ describe('agents/course-conductor.md frontmatter', () => {
   });
 
   it('does NOT include setup-phase tools (those belong to the course-engine skill)', () => {
-    const setupTools = ['selectLesson', 'setOutputMode', 'setPersonalization', 'start', 'runPreflightProbe'];
-    for (const fragment of setupTools) {
+    for (const fragment of SETUP_TOOLS) {
       for (const tool of tools) {
         expect(tool, `conductor should not hold the setup-phase tool '${fragment}': ${tool}`).not.toMatch(
           new RegExp(`__${fragment}$`),
@@ -115,26 +112,69 @@ describe('agents/course-conductor.md frontmatter', () => {
 describe('agents/course-conductor.md body', () => {
   const fm = readFrontmatter(AGENT_PATH);
 
-  it('describes the three MCP tools the agent uses', () => {
-    expect(fm.body).toMatch(/advanceArtifact/);
-    expect(fm.body).toMatch(/nextSection/);
-    expect(fm.body).toMatch(/verifySection/);
+  it('describes the two MCP tools the agent uses', () => {
+    expect(fm.body).toMatch(/\bnextChapter\b/);
+    expect(fm.body).toMatch(/\bverifyChapter\b/);
+  });
+
+  it('documents the nextChapter envelope fields the loop depends on', () => {
+    for (const field of [
+      'artifact_path',
+      'artifact_nav',
+      'artifact_conventions_path',
+      'summary_artifact_path',
+      'artifacts',
+      'final_verification',
+      'docs_dir',
+      'workspace_path',
+      'expected_files',
+      'key_idea',
+    ]) {
+      expect(fm.body, `body should mention envelope field ${field}`).toContain(field);
+    }
+  });
+
+  it('documents the verifyChapter envelope fields', () => {
+    for (const field of ['artifact_recorded', 'chapter_cursor', 'advanced', 'warnings']) {
+      expect(fm.body, `body should mention verifyChapter field ${field}`).toContain(field);
+    }
+  });
+
+  it('caps implementation attempts at 5 before asking the learner', () => {
+    expect(fm.body).toMatch(/5 (failed )?attempts/);
+  });
+
+  it('keeps the one-chapter-per-turn rule and the never-auto-retry rule', () => {
+    expect(fm.body).toMatch(/one chapter per learner turn/i);
+    expect(fm.body).toMatch(/never auto-retry/i);
+  });
+
+  it('offers publish-html only when publish_available is true and never invokes it', () => {
+    expect(fm.body).toContain('publish_available');
+    expect(fm.body).toContain('toolkit@contract-hero');
+    expect(fm.body).toContain('publish-html');
+    expect(fm.body).toMatch(/never invoke `publish-html`/i);
+  });
+
+  it('says plainly when the e2e skipped tests for missing credentials', () => {
+    expect(fm.body).toMatch(/skipped for missing credentials/i);
   });
 
   it('reframes retired tool names as a "do not call" warning, not as an instruction', () => {
-    // The body intentionally lists `selectStyle`, `requestHint`, etc. under a
-    // "Things you must not do" warning so the model doesn't try them from
-    // stale training memory. The test enforces that ANY mention of those
-    // tools sits in a "do not / retired / gone" sentence.
-    const retired = ['selectStyle', 'requestHint', 'nextSpot', 'verifySpot', 'getNextPrompt'];
-    for (const tool of retired) {
+    for (const tool of RETIRED_TOOLS) {
       const re = new RegExp(`[^\\n]*\\b${tool}\\b[^\\n]*`, 'g');
-      for (const line of fm.body.match(re) ?? []) {
+      const mentions = fm.body.match(re) ?? [];
+      expect(mentions.length, `retired '${tool}' should be listed in the warning`).toBeGreaterThan(0);
+      for (const line of mentions) {
         expect(
           /do not|don't|retired|gone|stale|removed|deprecated/i.test(line),
           `mention of retired '${tool}' must sit in a 'do not' warning context: ${line}`,
         ).toBe(true);
       }
     }
+  });
+
+  it('does not reference the v0.2 output-mode state field', () => {
+    expect(fm.body).not.toContain('selected_output_style');
   });
 });

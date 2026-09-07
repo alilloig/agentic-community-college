@@ -1,0 +1,21 @@
+{
+  "schema_version": 2,
+  "chapters": [
+    {
+      "id": "c01-first-step",
+      "title": "First chapter title",
+      "brief_md": "chapters/01-first-step.md",
+      "key_idea": "The one concept this chapter's artifact centers on. One or two sentences. Be specific.",
+      "expected_files": ["src/index.ts"],
+      "tests": ["tests/01-first-step.test.ts"],
+      "verification": {
+        "mode": "test-suite",
+        "command": "pnpm vitest run tests/01-first-step.test.ts"
+      }
+    }
+  ],
+  "final_verification": {
+    "mode": "test-suite",
+    "command": "pnpm vitest run"
+  }
+}

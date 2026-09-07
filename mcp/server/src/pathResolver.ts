@@ -9,7 +9,7 @@
 //
 // AC-6.3 invariant: this module is the ONLY path-substitution channel. It is
 // independent of `personalization.substitutePromptOnly`, which still owns
-// `{{ ... }}` substitution in section bodies. Never mix the two.
+// `{{ ... }}` substitution in chapter briefs. Never mix the two.
 
 import * as os from 'node:os';
 import * as path from 'node:path';

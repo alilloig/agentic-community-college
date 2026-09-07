@@ -1,4 +1,4 @@
-import { probeOutputStyle } from '../outputStyle.js';
+import { getOutputStyleStatus, type OutputStyleStatus } from '../outputStyle.js';
 import { scanCourses } from '../registry.js';
 import type { LessonInfo, RegistryWarning } from '../registry.js';
 import { discoverCourses } from '../pluginsRoot.js';
@@ -10,8 +10,8 @@ import type { StateWarning } from '../warnings.js';
 export type { StateWarning };
 
 export interface StartResult {
-  outputStyleOk: boolean;
-  preflight: { skipped: true; reason: 'cycle-1' };
+  /** Advisory: the active Claude Code output style vs. the recommended one. */
+  outputStyle: OutputStyleStatus;
   /** Public lesson catalog, aggregated across every discovered course plugin. */
   lessons: LessonInfo[];
   /** Names of course plugins ACC sees enabled in `~/.claude/plugins/installed_plugins.json`. */
@@ -21,29 +21,9 @@ export interface StartResult {
 }
 
 export async function runStart({ projectRoot }: { projectRoot: string }): Promise<StartResult> {
-  const styleResult = await probeOutputStyle();
+  const outputStyle = getOutputStyleStatus();
   const discovery = discoverCourses();
   const registry = await scanCourses(discovery.courses);
-
-  if (!styleResult.ok) {
-    const warnings: StartResult['warnings'] = [
-      ...discovery.warnings,
-      ...registry.warnings,
-    ];
-    if (styleResult.warning) {
-      warnings.unshift(styleResult.warning as StateWarning);
-    }
-    return {
-      outputStyleOk: false,
-      preflight: { skipped: true, reason: 'cycle-1' },
-      lessons: registry.lessons,
-      courses: discovery.courses.map((c) => c.name),
-      state: null,
-      warnings,
-    };
-  }
-
-  // Only load state when outputStyleOk === true.
   const stateResult = await loadState(projectRoot);
 
   const warnings: StartResult['warnings'] = [
@@ -78,8 +58,7 @@ export async function runStart({ projectRoot }: { projectRoot: string }): Promis
   }
 
   return {
-    outputStyleOk: true,
-    preflight: { skipped: true, reason: 'cycle-1' },
+    outputStyle,
     lessons: registry.lessons,
     courses: discovery.courses.map((c) => c.name),
     state,

@@ -1,14 +1,17 @@
-// State schema v4 — ACC lesson runtime.
+// State schema v5 — ACC lesson runtime (chapter model).
 //
-// Migration story: v3 (sui-mcp-course) and earlier states surface as
-// `schema-mismatch` in loadState; the existing flow short-circuits and the
-// learner re-runs selectLesson to mint fresh v4 state. No coercion, no data
-// loss. The corruption-archive path is unchanged.
+// Migration story: v4 (section model) and earlier states surface as
+// `schema-mismatch` in loadState; the learner re-runs the course's start
+// command to mint fresh v5 state. No coercion, no data loss. The
+// corruption-archive path is unchanged.
 //
-// Retired in v4 (vs v3): `cursor: { phase_id, spot_id }`, `ladder`,
-// `selected_style_per_spot`, `prompt_cursor_per_spot`. The new model has no
-// phases, no rungs, no per-spot styles — just an ordered section sequence
-// with a single integer cursor, and a path-wide output-style choice.
+// Retired in v5 (vs v4): `selected_output_style` (output modes are gone),
+// `section_cursor` (renamed `chapter_cursor`). New: `artifacts` (chapter id →
+// absolute artifact path, plus the `summary` key), `completed_at` (set when
+// final_verification passed), and `workspace_path` is now required because
+// every v0.3 lesson runs inside a seeded workspace.
+
+export const STATE_SCHEMA_VERSION = 5;
 
 export interface Personalization {
   [key: string]: unknown;
@@ -19,29 +22,32 @@ export interface HistoryEntry {
   event: string;
 }
 
-export type OutputStyleKind = 'learning' | 'explanatory';
-
 export interface TestStatus {
   pass: boolean;
   output?: string;
-  /** ISO-8601 timestamp of the last verifySection run. */
+  /** ISO-8601 timestamp of the last verifyChapter run. */
   ts?: string;
+  /** True when the run was final_verification (the e2e gate). */
+  final?: boolean;
 }
 
 export interface State {
-  schema_version: number;
-  /** Namespaced slug: `<course>/<lesson>` (e.g. `acc-deepbook-course@local/01-market-stats`). */
+  schema_version: typeof STATE_SCHEMA_VERSION;
+  /** Namespaced slug: `<course>/<lesson>`. */
   selected_lesson: string;
-  /** Set by setOutputMode between selectLesson and setPersonalization. */
-  selected_output_style: OutputStyleKind;
   personalization: Personalization;
-  /** Zero-based index into the lesson's sections array. */
-  section_cursor: number;
+  /** Zero-based index into chapters. `=== chapters.length` means every
+   * chapter passed and the e2e gate is pending or done. */
+  chapter_cursor: number;
   history: HistoryEntry[];
-  /** Absolute path to the lesson workspace when the lesson declares one. */
-  workspace_path?: string;
-  /** Result of the last verifySection / final_verification run. */
+  /** Chapter id → absolute artifact path. The summary uses the key `summary`. */
+  artifacts: Record<string, string>;
+  /** Absolute path to the lesson workspace. */
+  workspace_path: string;
+  /** Result of the last verifyChapter run. */
   test_status?: TestStatus;
+  /** ISO-8601 timestamp set when final_verification passed. */
+  completed_at?: string;
 }
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
@@ -52,20 +58,14 @@ export function validateState(v: unknown): ValidationResult<State> {
   }
   const obj = v as Record<string, unknown>;
 
-  if (typeof obj['schema_version'] !== 'number') {
-    return { ok: false, error: 'schema_version must be a number' };
+  if (obj['schema_version'] !== STATE_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      error: `schema_version must be ${STATE_SCHEMA_VERSION} (got ${JSON.stringify(obj['schema_version'])})`,
+    };
   }
   if (typeof obj['selected_lesson'] !== 'string' || (obj['selected_lesson'] as string).length === 0) {
     return { ok: false, error: 'selected_lesson must be a non-empty string' };
-  }
-  if (
-    obj['selected_output_style'] !== 'learning' &&
-    obj['selected_output_style'] !== 'explanatory'
-  ) {
-    return {
-      ok: false,
-      error: `selected_output_style must be 'learning' or 'explanatory' (got ${JSON.stringify(obj['selected_output_style'])})`,
-    };
   }
   if (
     typeof obj['personalization'] !== 'object' ||
@@ -75,30 +75,45 @@ export function validateState(v: unknown): ValidationResult<State> {
     return { ok: false, error: 'personalization must be a non-null object' };
   }
   if (
-    typeof obj['section_cursor'] !== 'number' ||
-    !Number.isInteger(obj['section_cursor']) ||
-    (obj['section_cursor'] as number) < 0
+    typeof obj['chapter_cursor'] !== 'number' ||
+    !Number.isInteger(obj['chapter_cursor']) ||
+    (obj['chapter_cursor'] as number) < 0
   ) {
-    return { ok: false, error: 'section_cursor must be a non-negative integer' };
+    return { ok: false, error: 'chapter_cursor must be a non-negative integer' };
   }
   if (!Array.isArray(obj['history'])) {
     return { ok: false, error: 'history must be an array' };
   }
+  const rawArtifacts = obj['artifacts'] ?? {};
+  if (typeof rawArtifacts !== 'object' || rawArtifacts === null || Array.isArray(rawArtifacts)) {
+    return { ok: false, error: 'artifacts must be an object' };
+  }
+  const artifacts: Record<string, string> = {};
+  for (const [k, val] of Object.entries(rawArtifacts as Record<string, unknown>)) {
+    if (typeof val !== 'string') {
+      return { ok: false, error: `artifacts.${k} must be a string` };
+    }
+    artifacts[k] = val;
+  }
+  if (typeof obj['workspace_path'] !== 'string' || (obj['workspace_path'] as string).length === 0) {
+    return { ok: false, error: 'workspace_path must be a non-empty string' };
+  }
 
   const value: State = {
-    schema_version: obj['schema_version'] as number,
+    schema_version: STATE_SCHEMA_VERSION,
     selected_lesson: obj['selected_lesson'] as string,
-    selected_output_style: obj['selected_output_style'] as OutputStyleKind,
     personalization: obj['personalization'] as Personalization,
-    section_cursor: obj['section_cursor'] as number,
+    chapter_cursor: obj['chapter_cursor'] as number,
     history: obj['history'] as HistoryEntry[],
+    artifacts,
+    workspace_path: obj['workspace_path'] as string,
   };
 
-  if (obj['workspace_path'] !== undefined) {
-    if (typeof obj['workspace_path'] !== 'string') {
-      return { ok: false, error: 'workspace_path must be a string when present' };
+  if (obj['completed_at'] !== undefined) {
+    if (typeof obj['completed_at'] !== 'string') {
+      return { ok: false, error: 'completed_at must be a string when present' };
     }
-    value.workspace_path = obj['workspace_path'] as string;
+    value.completed_at = obj['completed_at'] as string;
   }
 
   if (obj['test_status'] !== undefined) {
@@ -122,6 +137,12 @@ export function validateState(v: unknown): ValidationResult<State> {
         return { ok: false, error: 'test_status.ts must be a string when present' };
       }
       status.ts = tsObj['ts'] as string;
+    }
+    if (tsObj['final'] !== undefined) {
+      if (typeof tsObj['final'] !== 'boolean') {
+        return { ok: false, error: 'test_status.final must be a boolean when present' };
+      }
+      status.final = tsObj['final'] as boolean;
     }
     value.test_status = status;
   }
