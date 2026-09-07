@@ -6,7 +6,7 @@
 // file has been created, the tmp file is unlinked best-effort so the .acc/
 // directory doesn't accumulate orphaned `*.tmp-…` artifacts. Reuses the same
 // semantics state.ts originally encoded inline; extracted so workspace.ts and
-// advanceArtifact.ts don't drift away from it.
+// outputStyle.ts don't drift away from it.
 
 import * as fsPromises from 'node:fs/promises';
 import * as path from 'node:path';

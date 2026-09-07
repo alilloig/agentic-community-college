@@ -1,6 +1,6 @@
 # {{ name }}
 
-A **content plugin** for the [Agentic Community College (ACC)](https://github.com/contract-hero/agentic-community-college) framework. This repo ships {{ description_short }}; the ACC plugin owns the runtime that actually drives the lessons.
+A **content plugin** for the [Agentic Community College (ACC)](https://github.com/contract-hero/agentic-community-college) framework. This repo ships {{ description_short }}. The ACC plugin owns the runtime that drives the lessons.
 
 ## How it plugs in
 
@@ -16,26 +16,33 @@ A **content plugin** for the [Agentic Community College (ACC)](https://github.co
 }
 ```
 
-When this plugin is enabled alongside `agentic-community-college`, ACC scans `~/.claude/plugins/installed_plugins.json` at startup, finds this manifest's `accContent` block, and aggregates every lesson under `lessons/<slug>/` into its catalog. Probes declared here resolve at runtime when a lesson lists them in its `prerequisites`.
+When this plugin is enabled next to `agentic-community-college`, ACC scans `~/.claude/plugins/installed_plugins.json`, finds this manifest's `accContent` block, and adds every lesson under `lessons/<slug>/` to its catalog. Probes declared here run when a lesson lists them in its `prerequisites`.
 
-## What's inside
+## What is inside
 
 ```
 {{ name }}/
 ├── .claude-plugin/plugin.json    name + accContent (lessons + probes), no executable bits
+├── commands/start.md             /{{ name }}:start, delegates to ACC's course-engine
 ├── README.md                     this file
 ├── CLAUDE.md                     working notes for Claude when authoring lessons here
-└── lessons/                      one directory per lesson, each a hard copy of a reference app
-                                  plus its ordered section sequence, tests, and HTML artifact
+└── lessons/<slug>/
+    ├── lesson.json               identity, prerequisites, workspace seeding rules
+    ├── description.md            what the learner builds, prerequisites, time
+    ├── docs/                     curated documentation snapshot + INDEX.md
+    ├── chapters.json             ordered chapters, per-chapter tests, final e2e gate
+    ├── chapters/NN-<id>.md       chapter briefs
+    ├── reference-app/            complete solution INCLUDING every test
+    └── validation.json           result of the authoring-time learner pass
 ```
 
 ## Authoring a new lesson
 
-Don't write lesson files by hand. From inside any ACC-enabled session, invoke the `lesson-creator` skill. Point it at this repo and a reference codebase, and it scaffolds the whole lesson directory.
+Do not write lesson files by hand. From any ACC-enabled session, run `/agentic-community-college:create-lesson`. It curates the docs, plans the chapters, writes the tests and the reference solution, writes the briefs, and validates the lesson with a learner sub-agent.
 
 ## Running a lesson
 
-1. Install (or enable) both this plugin **and** `agentic-community-college` in Claude Code.
-2. Run `/agentic-community-college:start` from any project directory.
-3. Pick a lesson by namespaced slug (e.g. `{{ name }}@<marketplace>/01-some-lesson`).
-4. ACC drives you through it — runs any prerequisite probes declared in this plugin, asks for learning vs explanatory mode, sets personalization, walks the section sequence.
+1. Enable both this plugin and `agentic-community-college` in Claude Code.
+2. Run `/{{ name }}:start`.
+3. Pick a lesson by namespaced slug (for example `{{ name }}@<marketplace>/01-some-lesson`).
+4. ACC runs the prerequisite probes, collects personalization, then the conductor implements each chapter until its tests pass, explains it with an HTML artifact, and pauses. After the last chapter it runs the e2e test and writes a summary artifact.

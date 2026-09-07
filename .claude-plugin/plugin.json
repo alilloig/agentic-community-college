@@ -1,7 +1,7 @@
 {
   "name": "agentic-community-college",
-  "version": "0.2.0",
-  "description": "Agentic Community College — a Claude Code learning framework that runs reference-seeded coding lessons through MCP. Bring your own course (content plugin) to teach any domain.",
+  "version": "0.3.0",
+  "description": "Agentic Community College — a Claude Code learning framework. Given a topic and its docs, a course plugin defines chapters by their tests; the conductor implements each chapter and explains it with an HTML artifact. Bring your own course to teach any domain.",
   "author": {
     "name": "alilloig"
   },

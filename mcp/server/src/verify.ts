@@ -1,6 +1,6 @@
 import { spawnSync as nodeSpawnSync } from 'node:child_process';
 import * as path from 'node:path';
-import type { VerificationSpec } from './schemas/sections.js';
+import type { VerificationSpec } from './schemas/chapters.js';
 
 export type { VerificationSpec };
 

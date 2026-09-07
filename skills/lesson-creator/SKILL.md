@@ -1,169 +1,158 @@
 ---
 name: lesson-creator
-description: Author a new ACC lesson end-to-end — seeds a reference codebase into a target course, drafts the ordered section sequence with per-section key-moment emphasis, writes the test suite that gates equivalence, generates the evolving HTML artifact, and runs a learner-sub-agent validation pass under both learning and explanatory output styles before committing the result. Use when the user asks to "create a new lesson", "author an ACC lesson", "scaffold a lesson", "add a lesson from a reference app", or "build a course module from existing code".
+description: Author a new ACC lesson end-to-end from a topic and its documentation. Curates a docs snapshot (Phase 0), plans the ordered chapters, writes the per-chapter tests plus one e2e test and a reference solution that makes them pass, writes the chapter briefs and lesson manifests, then runs a learner sub-agent validation pass and records validation.json. Use when the user asks to "create a new lesson", "author an ACC lesson", "scaffold a lesson", "add a lesson about <topic>", or "turn these docs into a lesson".
 ---
 
 # Lesson Creator Skill
 
-You are authoring a new lesson for the Agentic Community College (ACC) framework. A lesson is a hard copy of a reference codebase plus a curated set of step-by-step prompts that drives a learner to a functionally-equivalent implementation. Each lesson is emitted into a **course** (a separate Claude Code plugin that declares `accContent`).
+You are authoring one lesson for the Agentic Community College (ACC) framework. A lesson is a topic split into **chapters**. Each chapter is defined by the tests it makes pass. At runtime the conductor implements every chapter, so the lesson ships the docs, the tests, the briefs, and a reference solution that proves the tests are satisfiable.
 
-Run the 8 steps below in order. Don't skip steps — the validation pass at the end depends on every artifact being in place.
+Run Steps 0 to 7 in order. Do not skip steps. The validation pass in Step 6 depends on every file being in place.
 
-## Step 0 — Toolkit availability check
+Output layout, inside the target course:
 
-Authoring a lesson the recommended way (Step 6) delegates several artifact-authoring tasks to skills bundled by the `toolkit@contract-hero` plugin:
-
-| Skill | Used in | Purpose |
-|---|---|---|
-| `html-artifact` | Step 6 | Family-aesthetic conventions for the per-lesson template and per-section visualizations |
-| `for-dummies` | Step 6 (and `description.md` draft) | Auto-derives a project-intro draft from the seeded `reference-app/` |
-| `move-call-chains` | Step 6 (Move lessons only) | Generates per-user-story inline SVG call-chain diagrams |
-| `publish-html` | Lesson handoff (offered by the conductor after the learner finishes) | Turns the rendered `artifact.html` into a shareable URL |
-
-Read `~/.claude/settings.json` and check `enabledPlugins["toolkit@contract-hero"]`:
-
-- If `true` → proceed to Step 1.
-- If missing or `false` → use `AskUserQuestion` with: *"The recommended authoring flow delegates to skills bundled by `toolkit@contract-hero`. Install it, or hand-author every artifact?"* Options: `"Install toolkit@contract-hero and re-run"` (recommended) or `"Proceed without — I'll hand-author every artifact"`.
-
-If the user picks "Proceed without", continue but state in Step 6 that the delegated skills are not being invoked. Never silently skip this check.
-
-## Step 1 — Target selection
-
-Call the `start` MCP tool (`agentic-community-college:start`) with the user's `projectRoot`. Use the `courses` array in the response to determine which content plugins are enabled.
-
-- If `result.courses` is empty, ask the user where the new lesson should land. Offer the absolute path of an existing content repo on disk (e.g. `~/workspace/acc-deepbook-course/`). Refuse to author into ACC itself.
-- If `result.courses` has one entry, default to that course's `lessons/` directory and confirm with the user.
-- If `result.courses` has multiple entries, ask the user which one to author into.
-
-Resolve the target to an absolute path: `<course-install-dir>/lessons/`. The skill emits a new directory `<course-install-dir>/lessons/<slug>/` containing every artifact for this lesson.
-
-## Step 2 — Input gathering
-
-Ask the user (using AskUserQuestion where natural) for:
-
-- **Source reference-app dir**: absolute path to the working codebase the lesson teaches (e.g. `~/workspace/deepbook-sandbox-evaluation-apps/independent/01-market-stats`). Read its directory tree before continuing.
-- **Slug**: short kebab-case identifier (e.g. `01-market-stats`). Must be unique inside the target course.
-- **Title**: human-readable, e.g. "DeepBook Market Stats".
-- **Summary**: one-sentence elevator pitch shown in the lesson catalog.
-- **Personalization** (optional): list of free-form keys with their ranges (integer min/max/default) or enums (values/default). Most lessons ship with no personalization.
-- **Prerequisites** (optional): probe IDs the conductor must pass before the learner can start. Probes are declared *in the course plugin's* `plugin.json` under `accContent.probes`, not in ACC — ACC ships zero domain probes. For each prerequisite the user names:
-  1. Read the target course's `<course>/.claude-plugin/plugin.json` and check whether the id already exists in `accContent.probes`.
-  2. If it does, just add the id to this lesson's `prerequisites` array. No further action.
-  3. If it doesn't, **offer to declare it inline now**. Run the same probe-kind wizard `course-creator` uses (kind, message_pass, message_fail, params, optional remediation). Append the new decl to the course's `accContent.probes` array, write the manifest back atomically, then add the id to the lesson's `prerequisites`.
-  4. Refuse to add a prerequisite id without declaring it — silent missing-probe references would break the conductor at runtime.
-
-  Every course ships with a pre-seeded `toolkit-installed` probe. Most lessons should **not** add it to their `prerequisites` — toolkit affordances (conductor's `publish-html` hand-off, scratch `html-artifact` suggestions) degrade gracefully when absent. Add it *only* when a section body instructs the learner to invoke a toolkit skill mid-lesson.
-- **Chapter breakdown**: ask whether to (a) **auto-derive** sections from the reference-app's natural milestones (you read the code and propose 5–10 sections), or (b) **manual** (the user names the sections).
-
-## Step 3 — Seed transform
-
-Copy the source reference-app into `<lesson>/reference-app/`. Then **transform it to be offline-runnable** — the lesson must compile and pass its tests with no external dependencies:
-
-- Identify every live-network dependency (`fetch` to live RPC, Vite middleware proxying to a live API, env vars pointing at sandbox endpoints). Read the app to find them.
-- Replace each with an in-bundle fixture. Concretely, two common patterns:
-  - **Vite dev-server middleware** that reads from outside the repo → replace with one that serves a JSON fixture under `reference-app/fixtures/`.
-  - **`globalThis.fetch` to a JSON-RPC / HTTP endpoint** → mock at the boundary via `dataLayer.offline.ts` (or equivalent) keyed on method name, returning canned responses from `reference-app/fixtures/`.
-- Run `pnpm install && pnpm vitest run` inside `reference-app/` to confirm the existing test suite passes against the stubs. If any fail, fix the stubs before continuing — the test suite IS the lesson's equivalence gate.
-
-## Step 4 — Section authoring
-
-Draft `<lesson>/sections.json` and one `<lesson>/sections/NN-<slug>.md` per chapter.
-
-Use `skills/lesson-creator/templates/sections.json.tmpl` as the starting shape. For each section, supply:
-
-- `id` — `s01-<short-name>`, `s02-...`, etc.
-- `title` — human-readable.
-- `body_md` — `sections/NN-<short-name>.md`. Write the body now; keep it short. Tell the learner what to build and which file(s) to edit. The HTML artifact carries the depth.
-- `key_moment` — 1–2 sentences naming the load-bearing piece of code in this section. This is the single most important field — it's what steers the learning-mode agent to leave its TODO at the right place. Be specific: "the bit-math that decodes the order_id" beats "the dataLayer logic".
-- `expected_files` — list of workspace-relative files this section produces or touches.
-- `artifact_section_id` — matches a `<section data-section-id="…">` in the artifact template (next step).
-- `verification` — usually omit (every section gates on the same final test suite). Add only when a section needs a mid-lesson `compile` check that's distinct from the final gate.
-
-The final `final_verification` is mandatory:
-
-```json
-{ "mode": "test-suite", "command": "pnpm vitest run" }
+```
+lessons/<slug>/
+├── lesson.json          identity, prerequisites, workspace seeding rules
+├── description.md       what the learner will build, why, prerequisites, time
+├── docs/                Phase 0 snapshot: curated markdown + INDEX.md
+├── chapters.json        ordered chapters, per-chapter verification, final e2e gate
+├── chapters/NN-<id>.md  chapter briefs
+├── reference-app/       complete working solution INCLUDING every test
+└── validation.json      result of the learner validation pass
 ```
 
-## Step 5 — Test authoring
+Templates live in `skills/lesson-creator/templates/`: `lesson.json.tmpl`, `chapters.json.tmpl`, `chapter.md.tmpl`, `description.md.tmpl`. Fill `{{ key }}` placeholders with a plain string replace. No template engine.
 
-Copy the reference-app's vitest suite into `<lesson>/tests/`. The path layout is your call (unit/, scenario/, e2e/ subdirs are fine; flat is also fine). Add one extra **e2e** test that asserts the assembled app renders the expected UI when seeded with the fixture data — this catches "the prompts produced syntactically-correct code that doesn't actually work" failures.
+## Step 0: Inputs
 
-Keep the tests fast (under 30s total). Long-running playwright tests are out of scope — vitest + React Testing Library + jsdom is the default stack.
+Collect these with `AskUserQuestion` where a choice is involved, plain chat otherwise.
 
-## Step 6 — Artifact authoring
+**Target course.** Call the `start` MCP tool with the user's `projectRoot`. Use `result.courses`:
 
-Draft `<lesson>/artifact/template.html` from `skills/lesson-creator/templates/template.html.tmpl`. The skeleton ships:
+- Empty: ask for the absolute path of a course repo on disk (for example `~/workspace/acc/acc-<domain>/`). Refuse to author into ACC itself.
+- One entry: default to that course and confirm.
+- Several entries: ask which one.
 
-- A header comment that points at the **shared HTML conventions** (the `references/html-conventions.md` file inside the `html-artifact` skill's directory — toolkit bundles `html-artifact`, so the exact on-disk path varies with the install). Load that file before editing the per-lesson copy — it defines the system-font stack, palette, max-width, and mobile-responsive shape every ACC artifact inherits. The lesson template only overrides what the lesson specifically needs.
-- Inline `<style>` (dark theme tokens that conform to the shared conventions).
-- Inline JS poller that re-reads `./artifact-state.json` every 2s and toggles `data-visible` on sections whose `data-section-id` matches `revealed[]`.
-- One `<section data-section-id="…">` block per lesson section, in order, each hidden by default.
-- An inline SVG architecture diagram of the final app — the single most-viewed piece of content during the lesson.
+Resolve the target to `<course-install-dir>/lessons/<slug>/`. Refuse to overwrite an existing lesson directory.
 
-### 6a — Delegate raw materials before drawing from scratch
+**Topic.** One sentence: what the learner builds and which library or API it uses. Note the language and toolchain the topic implies (default: TypeScript, pnpm, vitest). Confirm.
 
-The diagrams and intro prose are where authoring time goes. Before drawing manually, invoke the right skill from `toolkit@contract-hero` (Step 0 confirmed availability):
+**Docs source.** One of:
 
-| If the lesson teaches… | Invoke | Use the output for |
-|---|---|---|
-| A **Move package** (smart contracts) | `/move-call-chains` against the lesson's `reference-app/` Move modules | Drop the generated per-user-story `<svg>` blocks into the per-section blocks of the template. The skill already follows the shared conventions. |
-| A **TS/JS/React app** (or anything non-Move) needing per-section visualizations | `/html-artifact` on a scratch path (e.g. `<lesson>/.scratch/section-N.html`) per visualization | Lift the generated `<svg>` block into the matching per-section block. Both skills draw from the same conventions, so the lift is mechanical. |
-| Any seeded `reference-app/` that needs a learner-facing intro | `/for-dummies` against `<lesson>/reference-app/` | Use the generated guide as a *draft* for `description.md` and the "Section 0 / orientation" block. Trim to a one-paragraph lede + one-paragraph architecture-at-a-glance — the for-dummies output is exhaustive on purpose. |
+- absolute paths to local docs files or directories,
+- one or more URLs,
+- `retrieve`: ACC finds and fetches the official documentation in Step 1.
 
-If Step 0 found toolkit absent and the user opted into hand-authoring, skip the table above and draw every diagram manually. State this explicitly when you hand off so the validation pass knows to be lenient.
+**Slug, title, summary.** Slug is kebab-case with a numeric prefix (`01-basic-agent`), unique inside the course. Title is human-readable. Summary is one sentence for the catalog.
 
-### 6b — Per-section block structure
+**Prerequisites (optional).** Probe ids the course-engine must pass before the learner starts. Probes are declared in the course plugin's `plugin.json` under `accContent.probes`. ACC ships zero domain probes. For each prerequisite the user names:
 
-Each `<section data-section-id="…">` block should:
+1. Read `<course>/.claude-plugin/plugin.json` and check whether the id exists in `accContent.probes`.
+2. If it exists, add the id to the lesson's `prerequisites`.
+3. If it does not exist, offer to declare it now. Run the same probe wizard `course-creator` uses (kind, `message_pass`, `message_fail`, `params`, optional `remediation`). Append the declaration to `accContent.probes`, write the manifest back atomically, then add the id to `prerequisites`.
+4. Never add a prerequisite id without a declaration. A missing probe breaks the course-engine at runtime.
 
-- State what the learner has built so far.
-- Visualize the new piece they're adding (boxes-and-arrows SVG, code snippets, a per-section flow diagram).
-- Avoid duplicating the section's `body_md` text — the body is the *what*, the artifact is the *why and how*.
+**Personalization (optional).** Free-form keys with integer ranges (`min`, `max`, `default`) or enums (`values`, `default`). Most lessons ship none. Personalization values substitute `{{ key }}` in chapter briefs only.
 
-### 6c — Verify it renders
+## Step 1: Phase 0 docs
 
-Run `python3 -m http.server` (or `open file://…`) and confirm the artifact renders correctly in a browser before continuing. Click through each section's `data-section-id` by hand-revealing it (set `data-visible="true"` in DevTools) to confirm the per-section visuals work in isolation, not just in cascade.
+The implementing agent grounds every chapter in this snapshot, so curate it with care.
 
-## Step 7 — Validation pass
+**Obtain the source.**
 
-Dispatch a learner sub-agent **twice** — once per output style — and confirm `vitest` passes in each run.
+- Local paths: read them.
+- URLs: fetch each page with `WebFetch`. Many documentation sites serve a markdown variant of every page; try `curl -sL <url>.md` first, then `<url>/index.md`, then the HTML page. Prefer the `.md` variant, it needs no cleanup.
+- `retrieve`: find the official documentation site for the topic (`WebSearch`, or a URL you know), list the pages that cover the planned steps, then fetch them as above. Show the page list to the user before fetching.
 
-Use the `Agent` tool with `subagent_type: skill-runner` and `isolation: "worktree"`. The sub-agent's prompt:
+**Curate into `<lesson>/docs/`.**
 
-> You are a learner taking an ACC lesson. The lesson lives at `<absolute path to lesson dir>`. Your workspace is `~/.acc/workspaces/<slug>/`. Walk through the sections in order: for each, read `sections/NN-*.md`, implement the code as instructed, and proceed. After the last section, run `cd <workspace> && pnpm vitest run`. Report exit code + last 50 lines of output. Output style is currently set to `<learning|explanatory>` — honor whatever the active style expects.
+- One markdown file per concept, named by concept (`query.md`, `tools.md`, `sessions.md`).
+- Trim each file to at most about 300 lines. Keep the parts a learner needs to implement the chapters: API signatures, option tables, and code examples. Drop navigation, marketing, changelogs, and unrelated sections.
+- Keep only the lesson's language. Remove tabs and examples for other languages.
+- Keep code examples verbatim. Do not rewrite them.
+- Write `docs/INDEX.md`: one line per file with the filename, what it covers, and which chapter needs it. Add the source URL or path of each file.
 
-Run the dispatch sequentially:
+Set `"docs": "docs/"` in `lesson.json` (Step 4).
 
-1. First with the learner's Claude Code session in `learning` output style.
-2. Then again with the session in `explanatory` output style.
+## Step 2: Plan
 
-Capture each run's exit code and `vitest` summary. Write the result to `<lesson>/validation.json`:
+Turn the topic into an ordered list of steps, then map every step to one chapter. Aim for 3 to 6 chapters. Chapter N builds on chapter N-1; the last chapter completes the feature.
 
-```json
-{
-  "ran_at": "<ISO-8601>",
-  "learning":   { "exit_code": 0, "tests_passed": <n>, "transcript_excerpt": "<last 50 lines>" },
-  "explanatory":{ "exit_code": 0, "tests_passed": <n>, "transcript_excerpt": "<last 50 lines>" }
-}
-```
+For every chapter define:
 
-If either run fails (`exit_code !== 0` or fewer tests passed than expected):
+- `id`: `cNN-<short-name>` (`c01-run-query`).
+- `title`: human-readable.
+- `key_idea`: the one concept the chapter artifact centers on. One or two sentences. Be specific.
+- `expected_files`: workspace-relative files the conductor writes in this chapter.
+- test cases: names plus one line on what each asserts.
 
-- Identify the failing section by re-reading the transcript.
-- Ask the user: refine the section's `body_md` / `key_moment`, or accept the failure as a documented known issue? (Some sections legitimately have multiple valid implementations; if `vitest` is too strict, that's a test-suite issue, not a prompt issue.)
-- If refining, edit the section and re-run only the failing mode's pass.
-- If accepting, add a `known_issues` array to `validation.json` listing the failure.
+Render the plan as a table and confirm it with the user via `AskUserQuestion` before Step 3. Refine until the user accepts it.
 
-Only emit a final `validation.json` once both modes are accepted.
+## Step 3: Tests and reference solution
 
-## Final commit
+Build `<lesson>/reference-app/` as a complete, working project.
 
-Once `validation.json` is written, summarize the new lesson to the user and recommend they `git add` + commit inside the target course repo. Do not run git commands from this skill — leave it to the user so they can audit the diff first.
+1. **Scaffold.** `package.json`, `tsconfig.json`, vitest config, `src/` stubs, `.gitignore`. Use pnpm. Pin dependency versions.
+2. **One test file per chapter.** `tests/NN-<id>.test.ts`. Tests exercise the public surface of that chapter's `expected_files`. Keep the whole suite under 30 seconds.
+3. **One e2e test.** `tests/e2e.test.ts` drives the whole feature end to end.
+4. **Offline by default.** Use fixtures, in-memory fakes, or a mock at the network boundary. A learner with no network must pass every chapter.
+5. **Credentials.** When the topic needs a live credential (an API key), the e2e reads it from an environment variable. When the variable is absent, the e2e skips itself with a clear message that names the variable, for example `describe.skipIf(!process.env.ANTHROPIC_API_KEY)("e2e (ANTHROPIC_API_KEY not set: skipped)", ...)`. A skipped e2e exits 0. Chapter tests never need credentials.
+6. **Implement the solution.** Write the code in `src/` until `pnpm install && pnpm vitest run` is green in `reference-app/`. Run each chapter's command too (`pnpm vitest run tests/NN-<id>.test.ts`).
+7. **Decide `solution_files`.** List every file the conductor must write at runtime. Scaffold, config, fixtures, and tests are not solution files. Check the seed: copy `reference-app/` to a temp dir, delete the solution files, run the install command. The install must succeed and the tests must fail on missing modules, not crash the runner.
+
+## Step 4: Chapter briefs and manifests
+
+Write `<lesson>/chapters.json` from `chapters.json.tmpl`. One entry per planned chapter with `id`, `title`, `brief_md`, `key_idea`, `expected_files`, `tests`, and `verification`. Per-chapter `verification` is `{ "mode": "test-suite", "command": "pnpm vitest run tests/NN-<id>.test.ts" }`. `final_verification` is `{ "mode": "test-suite", "command": "pnpm vitest run" }`. Modes: `compile`, `test-suite`. Pass is exit 0.
+
+Write one `<lesson>/chapters/NN-<id>.md` per chapter from `chapter.md.tmpl`. Three parts:
+
+- **What we implement**: learner-facing, 3 to 6 lines. What the code does after this chapter and why it matters.
+- **Done when**: one bullet per test in this chapter's test files. Test name plus what it asserts. Use the real names from the test files.
+- **Implementation notes**: for the agent. Which `docs/` file to read first, pitfalls, constraints such as "do not touch package.json".
+
+Write `<lesson>/lesson.json` from `lesson.json.tmpl`. Fill `slug`, `title`, `summary`, `prerequisites`, `docs`, `workspace.solution_files`, and any personalization. `workspace.host` is `reference-app`. Keep `workspace.files` empty unless a chapter needs a starter file that the solution does not contain.
+
+Never put `{{ }}` in a path-shaped field. Substitution runs on briefs only.
+
+## Step 5: Description
+
+Write `<lesson>/description.md` from `description.md.tmpl`. What the learner will build, why it matters, prerequisites, estimated time. Keep it under 30 lines. The course-engine renders it right after `selectLesson`.
+
+## Step 6: Validation pass
+
+Prove that an agent can implement the lesson from the briefs and the docs alone.
+
+1. Create a fresh temp workspace: `mktemp -d`. Copy `<lesson>/reference-app/` into it. Delete every `solution_files` entry. Run `host_install_command`.
+2. Dispatch ONE learner sub-agent with the `Agent` tool (`subagent_type: general-purpose`). Prompt:
+
+   > You implement an ACC lesson as its conductor would. Lesson directory: `<abs lesson dir>`. Workspace: `<abs temp dir>`. Never read `<abs lesson dir>/reference-app/`. For every chapter in `chapters.json`, in order: read `chapters/NN-<id>.md`, `docs/INDEX.md` and the docs files it points at, and the chapter's test files. Edit only the chapter's `expected_files` inside the workspace. Run `verification.command` from the workspace until it exits 0, at most 5 attempts per chapter; then stop and report. After the last chapter run `final_verification.command`. Report: chapters passed out of total, the final exit code, and the last 60 lines of test output.
+
+3. Write `<lesson>/validation.json`:
+
+   ```json
+   {
+     "ran_at": "<ISO-8601>",
+     "exit_code": 0,
+     "chapters_passed": 4,
+     "total_chapters": 4,
+     "transcript_excerpt": "<last 60 lines>"
+   }
+   ```
+
+4. On failure (`exit_code !== 0`, or `chapters_passed < total_chapters`): find the failing chapter in the transcript. Ask the user: refine the brief, the docs, or the tests, or accept the failure as a known issue. If refining, edit and re-run this step in a new temp workspace. If accepting, add a `known_issues` array to `validation.json` with one entry per failure.
+
+Remove the temp workspace when done.
+
+## Step 7: Hand-off
+
+Summarize the lesson: chapters, test counts, docs files, validation result. Recommend `git add` + commit inside the course repo. Do not run git commands from this skill. The user audits the diff first.
+
+Tell the user how to run it: enable the course plugin, then run `/<course>:start`.
 
 ## Skipping validation
 
-If the user explicitly asks to skip step 7 (e.g. `--skip-validation`), still write a `validation.json` placeholder noting that validation was skipped:
+If the user asks to skip Step 6 (`--skip-validation`), still write `validation.json` as a placeholder:
 
 ```json
 {
@@ -173,4 +162,4 @@ If the user explicitly asks to skip step 7 (e.g. `--skip-validation`), still wri
 }
 ```
 
-Never silently skip — always emit the file so downstream tooling can detect unvalidated lessons.
+Never skip silently. Downstream tooling reads this file to detect unvalidated lessons.

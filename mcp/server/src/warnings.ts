@@ -46,13 +46,6 @@ export interface SettingsParseErrorWarning {
   message: string;
 }
 
-// Cycle 6: plugin-not-enabled warning emitted when the learning-output-style
-// plugin key is absent, non-object, or not strictly === true.
-export interface OutputStylePluginNotEnabledWarning {
-  kind: 'output-style-plugin-not-enabled';
-  message: string;
-}
-
 // Preflight warnings (new in cycle 3)
 export interface PreflightFailWarning {
   kind: 'preflight-fail';
@@ -120,15 +113,16 @@ export interface AutoWriteFailedWarning {
   message: string;
 }
 
-export interface OutputStyleDisabledWarning {
-  kind: 'output-style-disabled';
-  tool: string;
+/** v0.3: verifyChapter passed but the conductor had not written the artifact. */
+export interface ArtifactMissingWarning {
+  kind: 'artifact-missing';
+  message: string;
 }
 
 export type Cycle5Warning =
   | StateSaveFailedWarning
   | AutoWriteFailedWarning
-  | OutputStyleDisabledWarning;
+  | ArtifactMissingWarning;
 
 // The full discriminated union
 export type EngineWarning =
@@ -136,7 +130,6 @@ export type EngineWarning =
   | StateWarning
   | SettingsFileMissingWarning
   | SettingsParseErrorWarning
-  | OutputStylePluginNotEnabledWarning
   | PreflightWarning
   | PhaseEngineWarning
   | Cycle5Warning;

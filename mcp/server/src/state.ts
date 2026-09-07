@@ -7,7 +7,7 @@ import type { State } from './schemas/state.js';
 
 export type { State };
 
-export const STATE_SCHEMA_VERSION = 4;
+export const STATE_SCHEMA_VERSION = 5;
 
 const STATE_DIR = '.acc';
 const STATE_FILE = 'state.json';

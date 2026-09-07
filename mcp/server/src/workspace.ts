@@ -2,18 +2,20 @@
 //
 // Each lesson with a workspace block in lesson.json gets a course-managed
 // workspace under ~/.acc/workspaces/<slug>/. The workspace is:
-//   - seeded with the path's host directory (package.json, vite.config.ts,
-//     tsconfig*, index.html, src/main.tsx, etc.)
-//   - populated with starter files declared in path.json workspace.files[]
+//   - seeded with the lesson's host directory (the complete reference app:
+//     scaffold, config, tests, solution)
+//   - stripped of every workspace.solution_files entry, so the learner's copy
+//     holds scaffold + tests and the conductor writes the solution chapter by
+//     chapter
+//   - populated with starter files declared in lesson.json workspace.files[]
 //   - tagged with a .course-state.json metadata file that fingerprints the
 //     host tarball; re-running prepareWorkspace with a matching fingerprint
 //     no-ops, while a mismatch archives the old workspace and rebuilds.
 //   - optionally bootstrapped with `pnpm install` (or whatever
 //     workspace.host_install_command declares) on first creation.
 //
-// Tools resolve verifySpot's cwd, target_file_absolute, and rung-3 auto-write
-// targets through this module; the workspace is the only filesystem location
-// the lesson code edits.
+// verifyChapter resolves its cwd through this module; the workspace is the
+// only filesystem location the lesson code edits.
 
 import * as fsPromises from 'node:fs/promises';
 import * as fs from 'node:fs';
@@ -63,6 +65,9 @@ export interface PrepareWorkspaceResult {
   archivedTo?: string;
   /** Captured stdout/stderr lines from the install command, if any ran. */
   installLogs?: string[];
+  /** Workspace-relative solution files removed from the seeded copy. Only
+   * present when a fresh workspace was minted. */
+  strippedFiles?: string[];
 }
 
 export class WorkspacePrepareError extends Error {
@@ -161,6 +166,22 @@ export async function prepareWorkspace(
   // 4a. Seed host tree.
   await copyDirectoryTree(hostDir, workspacePath);
 
+  // 4a'. Strip the solution. Paths are schema-validated (workspace-relative,
+  //      no `..`, no leading slash) and re-checked here against the workspace
+  //      root so a manifest can never reach outside it.
+  const strippedFiles: string[] = [];
+  for (const rel of lessonData.workspace.solution_files) {
+    const targetAbs = path.resolve(workspacePath, rel);
+    if (!targetAbs.startsWith(`${path.resolve(workspacePath)}${path.sep}`)) {
+      throw new WorkspacePrepareError(
+        'invalid-config',
+        `solution_files entry '${rel}' resolves outside the workspace`,
+      );
+    }
+    await fsPromises.rm(targetAbs, { recursive: true, force: true });
+    strippedFiles.push(rel);
+  }
+
   // 4b. Copy starter files into their declared workspace paths.
   const starterFiles: string[] = [];
   for (const file of lessonData.workspace.files) {
@@ -211,7 +232,7 @@ export async function prepareWorkspace(
     );
   }
 
-  const result: PrepareWorkspaceResult = { workspacePath, created: true };
+  const result: PrepareWorkspaceResult = { workspacePath, created: true, strippedFiles };
   if (archivedTo !== undefined) result.archivedTo = archivedTo;
   if (installLogs !== undefined) result.installLogs = installLogs;
   return result;

@@ -1,17 +1,17 @@
-// lesson.ts — validator for the lesson manifest (`<lesson>/lesson.json`).
+// lesson.ts — validator for the lesson manifest (`<lesson>/lesson.json`), ACC v0.3.
 //
-// Successor to path.ts. Differences from path.ts:
-//   1. Personalization keys are course-defined free-form strings (no hardcoded
-//      'poll_interval_ms' | 'pool_subset' allowlist); ranges follow the same
-//      schema but key-by-key by name.
-//   2. New `artifact` block names the HTML template + state filename the
-//      runtime should manage for the evolving visual artifact.
-//   3. New optional `test_command` field. If absent, `build_command` is used
-//      by the final verification gate.
+// Changes from v0.2:
+//   1. `build_command`, `test_command` and `artifact` are gone. Verification
+//      lives per chapter in `chapters.json`; artifacts are generated at
+//      runtime by the conductor.
+//   2. `workspace.solution_files` lists the workspace-relative files that are
+//      deleted from the seeded copy of `workspace.host`, so the learner's
+//      workspace holds scaffold + tests, never the solution.
+//   3. Optional `docs` names the lesson-relative directory that holds the
+//      Phase 0 documentation snapshot.
 //
-// Path safety: every relative-path field is enforced via `isLessonRelPath`,
-// which rejects leading slashes and any `..` segment. Mirrors path.ts's
-// guard.
+// Unknown fields are ignored. Path safety: every relative-path field goes
+// through `isLessonRelPath`, which rejects leading slashes and `..` segments.
 
 export interface PersonalizationRangeInteger {
   min: number;
@@ -35,17 +35,14 @@ export interface WorkspaceFileSpec {
 }
 
 export interface WorkspaceConfig {
-  files: WorkspaceFileSpec[];
+  /** Lesson-relative directory copied whole into the workspace. */
   host: string;
   host_install_command?: string;
   verification_cwd?: string;
-}
-
-export interface ArtifactConfig {
-  /** Lesson-relative path to the HTML template. */
-  template: string;
-  /** Filename written into the workspace (sibling to artifact.html). Default: "artifact-state.json". */
-  state_filename?: string;
+  /** Workspace-relative files deleted from the seeded copy. */
+  solution_files: string[];
+  /** Starter files copied in after stripping. */
+  files: WorkspaceFileSpec[];
 }
 
 export interface LessonData {
@@ -54,24 +51,17 @@ export interface LessonData {
   summary: string;
   /** Course-defined personalization option names. May be empty. */
   personalization_options: string[];
-  /** Default build/verify command for the workspace. */
-  build_command: string;
-  /** Optional test-suite command for the final equivalence gate. */
-  test_command?: string;
   personalization_ranges?: PersonalizationRanges;
-  workspace?: WorkspaceConfig;
-  artifact?: ArtifactConfig;
-  /** Probe IDs the conductor must pass before the learner starts. Each entry
-   * must match a probe declared by the owning course plugin under
-   * `accContent.probes` in its `plugin.json` — ACC ships no domain probes.
-   * The schema validator only checks that entries are non-empty strings;
-   * `runPreflightProbe` surfaces a descriptive error when the lookup fails. */
+  /** Probe IDs the course-engine must pass before the learner starts. */
   prerequisites?: string[];
+  /** Lesson-relative directory holding the Phase 0 docs snapshot. */
+  docs?: string;
+  workspace?: WorkspaceConfig;
 }
 
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: string };
 
-function isLessonRelPath(p: string): boolean {
+export function isLessonRelPath(p: string): boolean {
   if (p.length === 0) return false;
   if (p.startsWith('/') || p.startsWith('\\')) return false;
   const segments = p.replace(/\\/g, '/').split('/');
@@ -83,7 +73,7 @@ function isInteger(n: unknown): n is number {
 }
 
 export function validateLesson(v: unknown): ValidationResult<LessonData> {
-  if (typeof v !== 'object' || v === null) {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) {
     return { ok: false, error: 'lesson.json must be an object' };
   }
   const obj = v as Record<string, unknown>;
@@ -91,14 +81,17 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
   if (typeof obj['slug'] !== 'string' || obj['slug'].length === 0) {
     return { ok: false, error: 'Missing required field: slug' };
   }
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(obj['slug'] as string)) {
+    return {
+      ok: false,
+      error: `slug '${obj['slug']}' must be filename-safe ([A-Za-z0-9._-], no leading dot)`,
+    };
+  }
   if (typeof obj['title'] !== 'string' || obj['title'].length === 0) {
     return { ok: false, error: 'Missing required field: title' };
   }
   if (typeof obj['summary'] !== 'string') {
     return { ok: false, error: 'Missing required field: summary' };
-  }
-  if (typeof obj['build_command'] !== 'string' || obj['build_command'].length === 0) {
-    return { ok: false, error: 'Missing required field: build_command' };
   }
   if (!Array.isArray(obj['personalization_options'])) {
     return { ok: false, error: 'personalization_options must be an array' };
@@ -112,14 +105,6 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     }
   }
   const declaredKeys = new Set(obj['personalization_options'] as string[]);
-
-  let test_command: string | undefined;
-  if (obj['test_command'] !== undefined) {
-    if (typeof obj['test_command'] !== 'string' || (obj['test_command'] as string).length === 0) {
-      return { ok: false, error: 'test_command must be a non-empty string if present' };
-    }
-    test_command = obj['test_command'] as string;
-  }
 
   let personalization_ranges: PersonalizationRanges | undefined;
   if (obj['personalization_ranges'] !== undefined) {
@@ -144,9 +129,7 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
         return { ok: false, error: `personalization_ranges.${key} must be an object` };
       }
       const r = rawRange as Record<string, unknown>;
-      // Two shapes: integer-range or enum.
       if (Array.isArray(r['values'])) {
-        // enum shape
         for (const val of r['values']) {
           if (typeof val !== 'string') {
             return {
@@ -172,7 +155,6 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
           default: r['default'] as string,
         };
       } else {
-        // integer-range shape
         if (!isInteger(r['min']) || !isInteger(r['max']) || !isInteger(r['default'])) {
           return {
             ok: false,
@@ -203,6 +185,20 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     }
   }
 
+  let docs: string | undefined;
+  if (obj['docs'] !== undefined) {
+    if (typeof obj['docs'] !== 'string' || (obj['docs'] as string).length === 0) {
+      return { ok: false, error: 'docs must be a non-empty string when present' };
+    }
+    if (!isLessonRelPath(obj['docs'] as string)) {
+      return {
+        ok: false,
+        error: `docs '${obj['docs']}' must be a relative path with no '..' segments and no leading '/'`,
+      };
+    }
+    docs = obj['docs'] as string;
+  }
+
   let workspace: WorkspaceConfig | undefined;
   if (obj['workspace'] !== undefined) {
     if (typeof obj['workspace'] !== 'object' || obj['workspace'] === null) {
@@ -218,13 +214,13 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
         error: `workspace.host '${w['host']}' must be a relative path with no '..' segments and no leading '/'`,
       };
     }
-    if (!Array.isArray(w['files'])) {
+
+    const rawFiles = w['files'] ?? [];
+    if (!Array.isArray(rawFiles)) {
       return { ok: false, error: 'workspace.files must be an array' };
     }
-    // Empty array is valid: lessons that seed entirely from the `host`
-    // directory (no per-file starters) can declare files: [].
     const files: WorkspaceFileSpec[] = [];
-    for (const f of w['files'] as unknown[]) {
+    for (const f of rawFiles as unknown[]) {
       if (typeof f !== 'object' || f === null) {
         return { ok: false, error: 'workspace.files[] entries must be objects' };
       }
@@ -240,7 +236,26 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
       }
       files.push({ path: fo['path'] as string, starter: fo['starter'] as string });
     }
-    workspace = { files, host: w['host'] as string };
+
+    const rawSolution = w['solution_files'] ?? [];
+    if (!Array.isArray(rawSolution)) {
+      return { ok: false, error: 'workspace.solution_files must be an array' };
+    }
+    const solution_files: string[] = [];
+    for (const s of rawSolution as unknown[]) {
+      if (typeof s !== 'string' || s.length === 0) {
+        return { ok: false, error: 'workspace.solution_files entries must be non-empty strings' };
+      }
+      if (!isLessonRelPath(s)) {
+        return {
+          ok: false,
+          error: `workspace.solution_files entry '${s}' must be a relative path with no '..' segments and no leading '/'`,
+        };
+      }
+      solution_files.push(s);
+    }
+
+    workspace = { host: w['host'] as string, files, solution_files };
     if (w['host_install_command'] !== undefined) {
       if (typeof w['host_install_command'] !== 'string') {
         return { ok: false, error: 'workspace.host_install_command must be a string' };
@@ -258,34 +273,6 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
         };
       }
       workspace.verification_cwd = w['verification_cwd'] as string;
-    }
-  }
-
-  let artifact: ArtifactConfig | undefined;
-  if (obj['artifact'] !== undefined) {
-    if (typeof obj['artifact'] !== 'object' || obj['artifact'] === null) {
-      return { ok: false, error: 'artifact must be an object' };
-    }
-    const a = obj['artifact'] as Record<string, unknown>;
-    if (typeof a['template'] !== 'string' || a['template'].length === 0) {
-      return { ok: false, error: 'artifact.template must be a non-empty string' };
-    }
-    if (!isLessonRelPath(a['template'] as string)) {
-      return {
-        ok: false,
-        error: `artifact.template '${a['template']}' must be a lesson-relative path`,
-      };
-    }
-    artifact = { template: a['template'] as string };
-    if (a['state_filename'] !== undefined) {
-      if (typeof a['state_filename'] !== 'string' || (a['state_filename'] as string).length === 0) {
-        return { ok: false, error: 'artifact.state_filename must be a non-empty string' };
-      }
-      // Plain filename only — no slashes — to avoid escaping the workspace.
-      if (/[\\/]/.test(a['state_filename'] as string)) {
-        return { ok: false, error: 'artifact.state_filename must be a plain filename without slashes' };
-      }
-      artifact.state_filename = a['state_filename'] as string;
     }
   }
 
@@ -312,12 +299,10 @@ export function validateLesson(v: unknown): ValidationResult<LessonData> {
     title: obj['title'] as string,
     summary: obj['summary'] as string,
     personalization_options: obj['personalization_options'] as string[],
-    build_command: obj['build_command'] as string,
   };
-  if (test_command !== undefined) result.test_command = test_command;
   if (personalization_ranges !== undefined) result.personalization_ranges = personalization_ranges;
-  if (workspace !== undefined) result.workspace = workspace;
-  if (artifact !== undefined) result.artifact = artifact;
   if (prerequisites !== undefined) result.prerequisites = prerequisites;
+  if (docs !== undefined) result.docs = docs;
+  if (workspace !== undefined) result.workspace = workspace;
   return { ok: true, value: result };
 }

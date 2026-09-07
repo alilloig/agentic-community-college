@@ -1,6 +1,5 @@
 import { loadState, saveState, STATE_SCHEMA_VERSION } from '../state.js';
-import type { State, OutputStyleKind } from '../schemas/state.js';
-import { probeOutputStyle } from '../outputStyle.js';
+import type { State } from '../schemas/state.js';
 import { discoverCourses } from '../pluginsRoot.js';
 import { loadLessonBySlug } from '../registry.js';
 import { prepareWorkspace, WorkspacePrepareError } from '../workspace.js';
@@ -27,18 +26,17 @@ export interface SelectLessonResult {
     enum?: string[];
     default?: string | number;
   }>;
-  /** Surfaces the output-mode picker for the conductor. */
-  outputModePrompt?: {
-    message: string;
-    options: OutputStyleKind[];
-  };
   /** Probe IDs the course-engine must run via runPreflightProbe before
    * advancing to setPersonalization. Empty/absent when the lesson declares
    * no prerequisites. */
   prerequisites?: string[];
+  /** Number of chapters in the picked lesson. */
+  chapterCount?: number;
   workspacePath?: string;
   workspaceCreated?: boolean;
   workspaceArchivedTo?: string;
+  /** Solution files removed from a freshly seeded workspace. */
+  workspaceStrippedFiles?: string[];
   /** Surfaces the one-time first-run setup prompt to the conductor. The
    * conductor calls `configureWorkspace` once with the learner's chosen
    * workspace_root and never sees this field again. Absent when the user
@@ -48,8 +46,6 @@ export interface SelectLessonResult {
     defaultWorkspaceRoot: string;
   };
 }
-
-const DEFAULT_OUTPUT_STYLE: OutputStyleKind = 'learning';
 
 export async function runSelectLesson({
   projectRoot,
@@ -61,14 +57,9 @@ export async function runSelectLesson({
   /** Test seam for the ACC config home — defaults to `os.homedir()`. */
   homeDir?: string;
 }): Promise<SelectLessonResult> {
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
-  }
-
   // Load state purely for its side effect — corrupt JSON triggers the archive
   // flow inside `loadState`, and a schema-mismatch leaves the old file on disk
-  // so the user can recover. Either way we proceed to mint fresh v4 state.
+  // so the user can recover. Either way we proceed to mint fresh v5 state.
   await loadState(projectRoot);
 
   const discovery = discoverCourses();
@@ -85,7 +76,7 @@ export async function runSelectLesson({
   if (!loaded.ok) {
     return { ok: false, errors: [loaded.error] };
   }
-  const { lesson, info } = loaded;
+  const { lesson, chapters, info } = loaded;
 
   // Resolve the owning course's `${paths.<id>}` declarations into absolute
   // paths so we can both surface them to the conductor and inject them as
@@ -117,6 +108,7 @@ export async function runSelectLesson({
   let workspacePath: string | undefined;
   let workspaceCreated: boolean | undefined;
   let workspaceArchivedTo: string | undefined;
+  let workspaceStrippedFiles: string[] | undefined;
   if (lesson.workspace) {
     try {
       const ws = await prepareWorkspace(lesson.slug, info.lesson_dir, lesson, {
@@ -125,6 +117,7 @@ export async function runSelectLesson({
       workspacePath = ws.workspacePath;
       workspaceCreated = ws.created;
       workspaceArchivedTo = ws.archivedTo;
+      workspaceStrippedFiles = ws.strippedFiles;
     } catch (err) {
       if (err instanceof WorkspacePrepareError) {
         return { ok: false, errors: [`workspace-prepare-failed (${err.kind}): ${err.message}`] };
@@ -133,17 +126,16 @@ export async function runSelectLesson({
     }
   }
 
-  // Mint fresh state. selected_output_style defaults to 'learning'; the
-  // conductor will overwrite via setOutputMode after asking the learner.
+  // Mint fresh v5 state: cursor at chapter 0, no artifacts yet.
   const fresh: State = {
     schema_version: STATE_SCHEMA_VERSION,
     selected_lesson: info.namespaced_slug,
-    selected_output_style: DEFAULT_OUTPUT_STYLE,
     personalization: {},
-    section_cursor: 0,
+    chapter_cursor: 0,
     history: [
       { ts: new Date().toISOString(), event: `selectLesson:${info.namespaced_slug}` },
     ],
+    artifacts: {},
   };
   if (workspacePath !== undefined) fresh.workspace_path = workspacePath;
 
@@ -185,11 +177,7 @@ export async function runSelectLesson({
 
   const result: SelectLessonResult = {
     ok: true,
-    outputModePrompt: {
-      message:
-        'Pick an output mode. `learning` paces sections so the load-bearing pieces are left for you to write; `explanatory` implements + narrates everything.',
-      options: ['learning', 'explanatory'],
-    },
+    chapterCount: chapters.chapters.length,
   };
   if (description !== undefined) result.description = description;
   if (personalizationPrompts.length > 0) result.personalizationPrompts = personalizationPrompts;
@@ -199,6 +187,9 @@ export async function runSelectLesson({
   if (workspacePath !== undefined) result.workspacePath = workspacePath;
   if (workspaceCreated !== undefined) result.workspaceCreated = workspaceCreated;
   if (workspaceArchivedTo !== undefined) result.workspaceArchivedTo = workspaceArchivedTo;
+  if (workspaceStrippedFiles !== undefined && workspaceStrippedFiles.length > 0) {
+    result.workspaceStrippedFiles = workspaceStrippedFiles;
+  }
 
   // One-time nudge: surface a friendly first-run prompt the very first time
   // a learner picks a lesson. Idempotent — once they call `configureWorkspace`

@@ -1,31 +1,28 @@
 // Shared setup gate for MCP tools that require an active lesson.
 //
-// Five tools (setOutputMode, setPersonalization, nextSection, verifySection,
-// advanceArtifact) share the same pre-work:
-//   1. Probe the learning-output-style plugin (L002 carry-forward — MUST run
-//      before any state load).
-//   2. Load + classify state.json; corrupt / schema-mismatch / absent each
+// Three tools (setPersonalization, nextChapter, verifyChapter) share the same
+// pre-work:
+//   1. Load + classify state.json; corrupt / schema-mismatch / absent each
 //      produce specific error shapes that forward the classified context the
 //      learner needs to recover (archive path, found schema version, missing
 //      slug + visible courses).
-//   3. Require state.selected_lesson — these tools are meaningless without one.
-//   4. (Optional) Resolve the namespaced slug to a loaded LessonData +
-//      SectionsManifest + LessonInfo via the course registry.
+//   2. Require state.selected_lesson.
+//   3. Resolve the namespaced slug to a loaded LessonData + ChaptersManifest +
+//      LessonInfo via the course registry.
 //
 // Returning a tagged union keeps the call sites flat: each tool either bails
 // with the carried `errors` or destructures `state` / `loaded` and continues.
 
 import { loadState, STATE_SCHEMA_VERSION, type State } from '../state.js';
-import { probeOutputStyle } from '../outputStyle.js';
 import { discoverCourses } from '../pluginsRoot.js';
 import { loadLessonBySlug } from '../registry.js';
 import type { LessonData } from '../schemas/lesson.js';
-import type { SectionsManifest } from '../schemas/sections.js';
+import type { ChaptersManifest } from '../schemas/chapters.js';
 import type { LessonInfo } from '../registry.js';
 
 export interface LoadedLesson {
   lesson: LessonData;
-  sections: SectionsManifest;
+  chapters: ChaptersManifest;
   info: LessonInfo;
 }
 
@@ -35,19 +32,13 @@ export type SetupGateResult =
 
 /**
  * Run the canonical tool entry sequence:
- *   output-style probe → state load → selected-lesson lookup → registry resolve.
+ *   state load → selected-lesson lookup → registry resolve.
  *
- * Each failure mode surfaces a structured, actionable error string. The
- * specific prefixes (`output-style-disabled`, `State corrupt:`, `State
- * schema mismatch:`, `No lesson selected`, `Lesson not found:`) are part of
- * the contract — the conductor and tests branch on them.
+ * The specific error prefixes (`State corrupt:`, `State schema mismatch:`,
+ * `No lesson selected`, `Lesson not found:`) are part of the contract — the
+ * skills and tests branch on them.
  */
 export async function runSetupGate(projectRoot: string): Promise<SetupGateResult> {
-  const styleCheck = await probeOutputStyle();
-  if (!styleCheck.ok) {
-    return { ok: false, errors: ['output-style-disabled'] };
-  }
-
   const stateResult = await loadState(projectRoot);
   if (stateResult.kind === 'corrupt') {
     const archiveHint = stateResult.archivedTo
@@ -68,19 +59,11 @@ export async function runSetupGate(projectRoot: string): Promise<SetupGateResult
       ],
     };
   }
-  if (stateResult.kind === 'absent') {
+  if (stateResult.kind === 'absent' || !stateResult.state.selected_lesson) {
     return {
       ok: false,
       errors: [
-        'No lesson selected. Call selectLesson first (or invoke the course plugin\'s start command, e.g. /acc-deepbook-course:start).',
-      ],
-    };
-  }
-  if (!stateResult.state.selected_lesson) {
-    return {
-      ok: false,
-      errors: [
-        'No lesson selected. Call selectLesson first (or invoke the course plugin\'s start command, e.g. /acc-deepbook-course:start).',
+        "No lesson selected. Call selectLesson first (or invoke the course plugin's start command, e.g. /acc-claude-sdk:start).",
       ],
     };
   }
@@ -103,6 +86,6 @@ export async function runSetupGate(projectRoot: string): Promise<SetupGateResult
   return {
     ok: true,
     state,
-    loaded: { lesson: loaded.lesson, sections: loaded.sections, info: loaded.info },
+    loaded: { lesson: loaded.lesson, chapters: loaded.chapters, info: loaded.info },
   };
 }
